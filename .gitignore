@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets & local env overrides
+.env
+.env.*
+!.env.example
+
+# Coverage / pytest / type-check / lint caches
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Run outputs (per-case spans, violations, reports — regenerable)
+runs/
