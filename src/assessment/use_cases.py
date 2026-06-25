@@ -31,7 +31,7 @@ class CreateSoapAnnotation:
 
         # 1. Собираем исправленный отчёт из новых заметок
         corrected_report = SoapReport(
-            id=SoapReportId.new(),
+            id=Id.new(),
             soap_notes=request.corrected_notes,
             created_at=now,
             updated_at=now,
