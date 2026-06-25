@@ -43,6 +43,7 @@ class CreateSoapAnnotation:
             original_report_id=request.original_report_id,
             annotated_report=corrected_report,
             annotator_id=request.annotator_id,
+            started_at=now,
             status=AnnotationStatus.COMPLETED,
             changes=request.changes,  # сохраняем изменения
             notes=request.comments,
