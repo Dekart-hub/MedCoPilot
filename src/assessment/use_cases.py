@@ -15,7 +15,7 @@ class AnnotationRequest:
     original_report_id: SoapReportId
     corrected_notes: list[SoapNote]
     annotator_id: str
-    changes: list[ChangeDescription] 
+    changes: list[ChangeDescription]
     comments: Optional[str] = None
 
 
@@ -26,12 +26,15 @@ class CreateSoapAnnotation:
         self.repository = repository
 
     async def execute(self, request: AnnotationRequest) -> SoapAnnotation:
+        # Один timestamp на всю операцию (совет ревьюера)
+        now = datetime.now()
+
         # 1. Собираем исправленный отчёт из новых заметок
         corrected_report = SoapReport(
             id=SoapReportId.new(),
             soap_notes=request.corrected_notes,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
+            created_at=now,
+            updated_at=now,
         )
 
         # 2. Создаём сущность разметки
@@ -41,7 +44,9 @@ class CreateSoapAnnotation:
             annotated_report=corrected_report,
             annotator_id=request.annotator_id,
             status=AnnotationStatus.COMPLETED,
+            changes=request.changes,  # сохраняем изменения
             notes=request.comments,
+            completed_at=now,         # устанавливаем сразу
         )
 
         # 3. Сохраняем через репозиторий

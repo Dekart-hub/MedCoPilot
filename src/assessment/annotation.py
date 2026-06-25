@@ -6,7 +6,7 @@ from typing import Optional
 
 from shared.entity import Entity
 from shared.value_objects import Id
-from soap.soap import SoapReport, SoapReportId, SoapNote, SoapClaim
+from soap.soap import SoapReport, SoapReportId, SoapClaim
 
 from .enums import AnnotationStatus, ChangeType
 
@@ -45,6 +45,7 @@ class SoapAnnotation(Entity[AnnotationId]):
     annotated_report: SoapReport  # Полностью исправленная версия отчёта
     annotator_id: str  
     status: AnnotationStatus
+    changes: list[ChangeDescription] = field(default_factory=list)
     annotation_items: list[AnnotationItem] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
