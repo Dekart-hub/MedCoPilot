@@ -9,7 +9,14 @@ from .soap import (
 from .extractor import SoapExtractor
 from .score.score import SoapNoteConfidenceScore, SoapConfidenceReport
 from .score.scorer import ConfidenceScorer
-from .use_cases import ExtractScoredSoap, ScoredReport
+from .coding.coding import DiagnosisCoding, SoapNoteCoding, SoapCodingReport
+from .coding.normalizer import (
+    DiagnosisNormalizer,
+    LexicalDiagnosisNormalizer,
+    NullDiagnosisNormalizer,
+)
+from .view import AssessmentView, ClaimView, NoteView, ReportView, to_view
+from .use_cases import ExtractScoredSoap
 
 __all__ = [
     "SoapNote",
@@ -22,6 +29,16 @@ __all__ = [
     "SoapNoteConfidenceScore",
     "SoapConfidenceReport",
     "ConfidenceScorer",
+    "DiagnosisCoding",
+    "SoapNoteCoding",
+    "SoapCodingReport",
+    "DiagnosisNormalizer",
+    "LexicalDiagnosisNormalizer",
+    "NullDiagnosisNormalizer",
+    "AssessmentView",
+    "ClaimView",
+    "NoteView",
+    "ReportView",
+    "to_view",
     "ExtractScoredSoap",
-    "ScoredReport",
 ]
