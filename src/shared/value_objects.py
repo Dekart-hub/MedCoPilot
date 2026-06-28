@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, NewType
 from uuid import UUID, uuid4
 
+
+# ============================================
+# Семантические типы для ID
+# ============================================
+
+AnnotatorId = NewType('AnnotatorId', str)
+ClaimId = NewType('ClaimId', str)
+
+
+# ============================================
+# Value Objects
+# ============================================
 
 @dataclass(frozen=True, slots=True)
 class FloatRangedScore:
@@ -21,11 +33,7 @@ class FloatRangedScore:
 
 @dataclass(frozen=True, slots=True)
 class Id[T]:
-    """Типизированный идентификатор.
-
-    ``T`` — фантомный параметр: на рантайме не используется, нужен только
-    чтобы тайп-чекер различал ``Id[Dialogue]`` и ``Id[Score]``.
-    """
+    """Типизированный идентификатор."""
 
     value: UUID
 
