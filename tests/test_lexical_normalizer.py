@@ -129,3 +129,8 @@ def test_coding_carries_classifier_reference():
 
 def test_parent_chain_walks_to_root():
     assert _index().parent_chain("L03.8") == ["L03"]
+
+
+def test_children_of_lists_refinements():
+    assert [c.code for c in _index().children_of("L03")] == ["L03.8", "L03.9"]
+    assert _index().children_of("L03.8") == []

@@ -96,12 +96,30 @@ class CodingResponse(BaseModel):
     classifier: ClassifierResponse
 
 
+def _coding_response(c) -> CodingResponse:
+    return CodingResponse(
+        code=c.code,
+        title=c.title,
+        matched_formulation=c.matched_formulation,
+        score=c.score.score,
+        classifier=ClassifierResponse(
+            system=c.classifier.system,
+            name=c.classifier.name,
+            version=c.classifier.version,
+            index_oid=c.classifier.index_oid,
+            index_version=c.classifier.index_version,
+        ),
+    )
+
+
 class AssessmentResponse(BaseModel):
     id: str
     claim: str
     evidence_text: str
     turn_id: str
     codings: list[CodingResponse]
+    selected: CodingResponse | None = None
+    rationale: str | None = None
 
     @classmethod
     def from_view(cls, assessment: AssessmentView) -> AssessmentResponse:
@@ -110,22 +128,13 @@ class AssessmentResponse(BaseModel):
             claim=assessment.claim,
             evidence_text=assessment.evidence_text,
             turn_id=str(assessment.turn_id),
-            codings=[
-                CodingResponse(
-                    code=c.code,
-                    title=c.title,
-                    matched_formulation=c.matched_formulation,
-                    score=c.score.score,
-                    classifier=ClassifierResponse(
-                        system=c.classifier.system,
-                        name=c.classifier.name,
-                        version=c.classifier.version,
-                        index_oid=c.classifier.index_oid,
-                        index_version=c.classifier.index_version,
-                    ),
-                )
-                for c in assessment.codings
-            ],
+            codings=[_coding_response(c) for c in assessment.codings],
+            selected=(
+                _coding_response(assessment.selected)
+                if assessment.selected
+                else None
+            ),
+            rationale=assessment.rationale,
         )
 
 

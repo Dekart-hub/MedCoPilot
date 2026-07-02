@@ -25,6 +25,59 @@ Transcript → Preprocessing → LLM Extraction → Tier 0 (Structural) → Tier
 
 The service follows a deterministic spine with LLM stages wrapped by validation layers, ensuring failures are caught without model cost.
 
+## ICD-10 Diagnosis Coding (МКБ-10)
+
+The Assessment of every extracted SOAP note is normalized to an ICD-10 code. The design premise: during a consultation the doctor usually *names* the (near-)exact diagnosis, so the task is not "diagnose from symptoms" but "code what the doctor said" — with Subjective/Objective used only to disambiguate code specifics (with/without complications, acuity, site).
+
+### Retrieve-then-reason pipeline
+
+```
+Assessment text ──► Tier 1: lexical retrieval (BM25) ──► top-20 candidates
+                                                              │
+S/O context ──────────────────────────────────────────────────▼
+                    Tier 2: LLM rerank ──► selected code + rationale
+```
+
+**Tier 1 — recall.** An in-memory Okapi BM25 index (`src/soap/coding/retrieval.py`) over two corpora: the Alphabetic Index formulations ("Том 3") and the canonical Tabular List rubric names ("Том 1"). Tokenization is language-specific and injected into the index (`preprocess.py` for Russian, `preprocess_en.py` for English: Snowball stemmer, clinical abbreviation expansion — `t2dm`, `copd`, … — and a stopword list that deliberately *keeps* `with`/`without`/`no`, because those distinguish 4th–5th code digits). This tier's only job is to get the right code into the top-20 pool: recall@20 = 100% on our golden set.
+
+**Tier 2 — precision.** `LlmRerankedDiagnosisNormalizer` (`src/soap/coding/reranker.py`) shows the LLM the assessment, the S/O claims, and the candidate pool enriched with each candidate's hierarchy neighborhood (parent rubrics for back-off, child codes for digit refinement). The model returns a structured choice: one code, a rationale, and a confidence — or an explicit refusal. Hallucinated codes are rejected structurally (only codes shown in the prompt are accepted); any failure degrades gracefully to the lexical top-1, so Tier 2 can never make results worse than Tier 1.
+
+The result is a side-car entity (`SoapNoteCoding`): retrieval `candidates` are kept for audit, the rerank decision lives in `selected`/`rationale`, and every code carries a `ClassifierRef` (system OID + reference-book version) for EHR-grade provenance.
+
+### Reference data
+
+| Language | Source | Files |
+|---|---|---|
+| `en` (default) | ICD-10-CM FY2026, CDC/NCHS ([download](https://www.cdc.gov/nchs/icd/icd-10-cm/files.html)) | `data/icd10cm/tabular.jsonl`, `index.jsonl` |
+| `ru` | МКБ-10 НСИ Минздрава (OID 1.2.643.5.1.13.13.11.1005 / …1489) | `data/icd10cm/mkb10_vol1.jsonl`, `mkb10_vol3_index.jsonl` |
+
+`data/icd10cm/` is gitignored; parse the official XML with:
+
+```bash
+uv run python scripts/parse_icd10cm.py \
+    --tabular data/icd10cm/icd10cm-tabular-2026.xml \
+    --index data/icd10cm/icd10cm-index-2026.xml \
+    --out data/icd10cm
+```
+
+If the reference files are missing, DI falls back to a null normalizer and the app still starts.
+
+### Configuration
+
+```bash
+CODING_LANGUAGE=en          # en -> ICD-10-CM, ru -> МКБ-10 НСИ
+CODING_DATA_DIR=data/icd10cm
+CODING_RETRIEVAL_TOP_N=20   # candidate pool size (recall-oriented)
+CODING_LLM_RERANK=true      # false -> pure lexical Tier 1 (offline, no LLM cost)
+```
+
+### Measured quality
+
+- **Golden set** (35 hand-checked assessment→code pairs, `data/golden/coding_en.jsonl`): retrieval recall@20 = 100%; end-to-end top-1 accuracy 83% lexical-only, ~97% of answered cases with LLM rerank. Run: `uv run python scripts/eval_coding.py [--llm]`.
+- **CodiEsp benchmark** (CLEF eHealth 2020, English translations; official micro-F1 over document-code pairs): **0.161** zero-shot with `gpt-4o-mini` — on par with published GPT-4 tree-search (0.157, Boyle et al. 2023); supervised PLM-ICD reaches ~0.216. Run: `uv run python scripts/eval_codiesp.py --data <codiesp root> --n 50`.
+
+Every eval run writes a full report (metrics + per-case predictions) to `runs/coding_eval/`.
+
 ## Project Structure
 
 ```

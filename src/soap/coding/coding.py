@@ -14,6 +14,10 @@ type SoapCodingReportId = Id[SoapCodingReport]
 MKB10_SYSTEM_OID = "1.2.643.5.1.13.13.11.1005"  # Том 1 (коды и названия)
 MKB10_INDEX_OID = "1.2.643.5.1.13.13.11.1489"  # Том 3 (указатель формулировок)
 
+# OID ICD-10-CM (NCHS/CMS, HL7). Английский аналог: Tabular List = «Том 1»,
+# Alphabetic Index = «Том 3». Отдельного OID у индекса нет — он часть издания.
+ICD10CM_SYSTEM_OID = "2.16.840.1.113883.6.90"
+
 
 @dataclass(frozen=True, slots=True)
 class ClassifierRef:
@@ -36,6 +40,14 @@ class ClassifierRef:
 # Референс по умолчанию: МКБ-10 НСИ без известных версий (проставляются при
 # сборке индекса из meta-файлов выгрузки).
 DEFAULT_MKB10_REF = ClassifierRef(system=MKB10_SYSTEM_OID, index_oid=MKB10_INDEX_OID)
+
+# Референс для английского ICD-10-CM. Версия (фискальный год) проставляется из
+# meta-файла выгрузки в MkbIndex.from_jsonl.
+DEFAULT_ICD10CM_REF = ClassifierRef(
+    system=ICD10CM_SYSTEM_OID,
+    name="ICD-10-CM (NCHS/CMS)",
+    index_oid=None,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,15 +74,22 @@ class SoapNoteCoding(Entity[SoapNoteCodingId]):
 
     Side-car: привязывается к ``SoapClaim`` ассессмента по ``soap_claim_id`` и
     не мутирует доменную модель SOAP. ``candidates`` — ранжированный список
-    кодов-кандидатов (может быть пустым, если совпадений нет).
+    кодов-кандидатов ретрива (может быть пустым, если совпадений нет); он
+    остаётся для аудита даже когда реранкер сделал выбор. ``selected`` —
+    итоговый выбор реранкера (None: реранкер не запускался или отказался
+    выбирать), ``rationale`` — его обоснование.
     """
 
     id: SoapNoteCodingId
     soap_claim_id: SoapClaimId
     candidates: list[DiagnosisCoding] = field(default_factory=list)
+    selected: DiagnosisCoding | None = None
+    rationale: str | None = None
 
     @property
     def best(self) -> DiagnosisCoding | None:
+        if self.selected is not None:
+            return self.selected
         return self.candidates[0] if self.candidates else None
 
 

@@ -1,0 +1,35 @@
+{"assessment": "Type 2 diabetes mellitus without complications", "code": "E11.9"}
+{"assessment": "Type 2 diabetes mellitus with diabetic nephropathy", "code": "E11.21"}
+{"assessment": "Type 1 diabetes mellitus with ketoacidosis without coma", "code": "E10.10"}
+{"assessment": "Essential hypertension", "code": "I10"}
+{"assessment": "Community acquired pneumonia, organism unspecified", "code": "J18.9", "subjective": "productive cough and fever for four days", "objective": "crackles at the right base, temperature 38.4"}
+{"assessment": "Acute bronchitis", "code": "J20.9"}
+{"assessment": "COPD with acute exacerbation", "code": "J44.1"}
+{"assessment": "Unspecified asthma, uncomplicated", "code": "J45.909"}
+{"assessment": "GERD without esophagitis", "code": "K21.9"}
+{"assessment": "Gastroesophageal reflux disease with esophagitis", "code": "K21.00"}
+{"assessment": "Acute cystitis without hematuria", "code": "N30.00"}
+{"assessment": "Urinary tract infection, site not specified", "code": "N39.0", "subjective": "burning on urination for two days", "objective": "urine dipstick positive for leukocytes and nitrites"}
+{"assessment": "Iron deficiency anemia, unspecified", "code": "D50.9"}
+{"assessment": "Hypothyroidism, unspecified", "code": "E03.9"}
+{"assessment": "Hyperlipidemia, unspecified", "code": "E78.5"}
+{"assessment": "Migraine, unspecified", "code": "G43.909"}
+{"assessment": "Acute pharyngitis, unspecified", "code": "J02.9"}
+{"assessment": "Acute maxillary sinusitis, unspecified", "code": "J01.00"}
+{"assessment": "Allergic rhinitis, unspecified", "code": "J30.9"}
+{"assessment": "Atrial fibrillation, unspecified", "code": "I48.91"}
+{"assessment": "Congestive heart failure, unspecified", "code": "I50.9"}
+{"assessment": "Acute myocardial infarction, unspecified", "code": "I21.9"}
+{"assessment": "Cerebral infarction, unspecified", "code": "I63.9"}
+{"assessment": "Low back pain, unspecified", "code": "M54.50"}
+{"assessment": "Osteoarthritis of knee, unspecified", "code": "M17.9"}
+{"assessment": "Gout, unspecified", "code": "M10.9"}
+{"assessment": "Major depressive disorder, single episode, unspecified", "code": "F32.9"}
+{"assessment": "Generalized anxiety disorder", "code": "F41.1"}
+{"assessment": "Acute appendicitis, unspecified", "code": "K35.80"}
+{"assessment": "Cholelithiasis without cholecystitis, without obstruction", "code": "K80.20"}
+{"assessment": "Cellulitis of neck", "code": "L03.221"}
+{"assessment": "Chronic kidney disease, stage 3, unspecified", "code": "N18.30"}
+{"assessment": "Obesity, unspecified", "code": "E66.9"}
+{"assessment": "Vitamin D deficiency, unspecified", "code": "E55.9"}
+{"assessment": "Anemia, unspecified", "code": "D64.9"}

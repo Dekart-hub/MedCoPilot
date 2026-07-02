@@ -129,6 +129,7 @@ def render_report(report: dict) -> None:
             _section("S — Subjective", note["subjective"])
             _section("O — Objective", note["objective"])
             _section("A — Assessment", note["assessment"])
+            _selected_coding(note["assessment"])
             _codings(note["assessment"].get("codings", []))
             _section("P — Plan", note["plan"])
 
@@ -138,11 +139,21 @@ def _section(label: str, claim: dict) -> None:
     st.write(claim["claim"])
 
 
+def _selected_coding(assessment: dict) -> None:
+    selected = assessment.get("selected")
+    if not selected:
+        return
+    st.success(f"**{selected['code']}** — {selected['title']}")
+    rationale = assessment.get("rationale")
+    if rationale:
+        st.caption(rationale)
+
+
 def _codings(codings: list[dict]) -> None:
     if not codings:
         st.caption("Коды МКБ не подобраны.")
         return
-    st.markdown("**Коды МКБ-10**")
+    st.markdown("**Кандидаты (ретрив)**")
     st.dataframe(
         [
             {

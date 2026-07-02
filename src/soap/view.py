@@ -15,7 +15,7 @@ from datetime import datetime
 
 from dialogue import DialogueTurnId
 
-from .coding.coding import DiagnosisCoding, SoapCodingReport
+from .coding.coding import DiagnosisCoding, SoapCodingReport, SoapNoteCoding
 from .score.score import SoapConfidenceReport
 from .soap import SoapClaim, SoapClaimId, SoapNoteId, SoapReport, SoapReportId
 
@@ -30,13 +30,19 @@ class ClaimView:
 
 @dataclass(frozen=True, slots=True)
 class AssessmentView:
-    """Как ``ClaimView``, но несёт коды классификатора инлайн."""
+    """Как ``ClaimView``, но несёт коды классификатора инлайн.
+
+    ``selected``/``rationale`` — итоговый выбор реранкера и его обоснование;
+    ``codings`` — кандидаты ретрива (аудит-след, из чего выбирали).
+    """
 
     id: SoapClaimId
     claim: str
     evidence_text: str
     turn_id: DialogueTurnId
     codings: list[DiagnosisCoding] = field(default_factory=list)
+    selected: DiagnosisCoding | None = None
+    rationale: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,13 +72,15 @@ def _claim(claim: SoapClaim) -> ClaimView:
     )
 
 
-def _assessment(claim: SoapClaim, codings: list[DiagnosisCoding]) -> AssessmentView:
+def _assessment(claim: SoapClaim, coding: SoapNoteCoding | None) -> AssessmentView:
     return AssessmentView(
         id=claim.id,
         claim=claim.claim,
         evidence_text=claim.evidence.text,
         turn_id=claim.evidence.turn_id,
-        codings=codings,
+        codings=coding.candidates if coding else [],
+        selected=coding.selected if coding else None,
+        rationale=coding.rationale if coding else None,
     )
 
 
@@ -87,8 +95,7 @@ def to_view(
         for score in confidence.confidence_scores
     }
     codings_by_claim = {
-        note_coding.soap_claim_id: note_coding.candidates
-        for note_coding in coding.codings
+        note_coding.soap_claim_id: note_coding for note_coding in coding.codings
     }
     return ReportView(
         id=report.id,
@@ -98,7 +105,7 @@ def to_view(
                 subjective=_claim(note.subjective),
                 objective=_claim(note.objective),
                 assessment=_assessment(
-                    note.assessment, codings_by_claim.get(note.assessment.id, [])
+                    note.assessment, codings_by_claim.get(note.assessment.id)
                 ),
                 plan=_claim(note.plan),
                 confidence=confidence_by_note.get(note.id),

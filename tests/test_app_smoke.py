@@ -9,7 +9,7 @@ from app import create_app
 @pytest.fixture
 def client(monkeypatch) -> TestClient:
     # Dummy-ключ: контейнер поднимается без сети (запросов к LLM здесь нет).
-    monkeypatch.setenv("OPENAI__API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     from config.settings import get_settings
 
     get_settings.cache_clear()

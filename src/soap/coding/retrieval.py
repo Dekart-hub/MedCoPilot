@@ -12,10 +12,15 @@ import json
 import math
 import os
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .coding import DEFAULT_MKB10_REF, ClassifierRef
 from .preprocess import normalize
+
+# Тип токенизатора: текст -> мешок токенов-основ. Подменяется на английский
+# (``preprocess_en.normalize``) при сборке индекса из ICD-10-CM.
+Tokenizer = Callable[[str], list[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,13 +105,22 @@ class MkbIndex:
         entries_by_id: dict[str, MkbEntry],
         entry_by_code: dict[str, MkbEntry],
         classifier: ClassifierRef = DEFAULT_MKB10_REF,
+        tokenizer: Tokenizer = normalize,
     ) -> None:
         self._codes = codes
         self._formulations = formulations
         self._bm25 = Bm25Index(doc_tokens)
         self._entries_by_id = entries_by_id
         self._entry_by_code = entry_by_code
+        # parent record_id -> дети; для уточнения 4-5-го знака в реранкере.
+        self._children_by_id: dict[str, list[MkbEntry]] = {}
+        for entry in entries_by_id.values():
+            if entry.parent_id:
+                self._children_by_id.setdefault(entry.parent_id, []).append(entry)
         self._classifier = classifier
+        # Один и тот же токенизатор должен применяться к корпусу и к запросу,
+        # иначе основы не совпадут — храним его на индексе.
+        self._tokenizer = tokenizer
 
     @property
     def classifier(self) -> ClassifierRef:
@@ -117,7 +131,7 @@ class MkbIndex:
 
     def search(self, text: str, top_n: int = 5) -> list[RawCandidate]:
         pool_size = max(top_n * self._POOL_FACTOR, self._MIN_POOL)
-        pool = self._bm25.search(normalize(text), pool_size)
+        pool = self._bm25.search(self._tokenizer(text), pool_size)
         if not pool:
             return []
 
@@ -146,6 +160,19 @@ class MkbIndex:
         entry = self._entry_by_code.get(code)
         return entry.name if entry else None
 
+    def children_of(self, code: str) -> list[MkbEntry]:
+        """Прямые потомки рубрики (уточняющие 4-5-й знак), по коду.
+
+        Пустой список — код листовой либо неизвестен. Вместе с ``parent_chain``
+        образует «окрестность» кандидата для LLM-реранка: родители дают
+        back-off, дети — уточнение.
+        """
+        entry = self._entry_by_code.get(code)
+        if entry is None:
+            return []
+        children = self._children_by_id.get(entry.record_id, [])
+        return sorted(children, key=lambda e: e.code)
+
     def parent_chain(self, code: str) -> list[str]:
         """Коды предков от ближайшего родителя к корню (для back-off)."""
         entry = self._entry_by_code.get(code)
@@ -168,6 +195,7 @@ class MkbIndex:
         vol1: list[dict],
         vol3: list[dict],
         classifier: ClassifierRef = DEFAULT_MKB10_REF,
+        tokenizer: Tokenizer = normalize,
     ) -> MkbIndex:
         entries_by_id: dict[str, MkbEntry] = {}
         entry_by_code: dict[str, MkbEntry] = {}
@@ -191,17 +219,27 @@ class MkbIndex:
         codes: list[str] = []
         formulations: list[str] = []
         doc_tokens: list[list[str]] = []
+
+        def add_doc(code: str, text: str) -> None:
+            tokens = tokenizer(text)
+            if not tokens:
+                return
+            codes.append(code)
+            formulations.append(text)
+            doc_tokens.append(tokens)
+
         for row in vol3:
             name = row.get("S_NAME")
             code = row.get("ICD-10")
-            if not name or not code:
-                continue
-            tokens = normalize(name)
-            if not tokens:
-                continue
-            codes.append(code)
-            formulations.append(name)
-            doc_tokens.append(tokens)
+            if name and code:
+                add_doc(code, name)
+
+        # Канонические названия Тома 1 — тоже поисковые документы: врач нередко
+        # формулирует диагноз дословно как рубрику («Acute pharyngitis,
+        # unspecified»), а указатель такие формулировки покрывает не всегда.
+        for entry in entry_by_code.values():
+            if entry.actual and entry.name:
+                add_doc(entry.code, entry.name)
 
         return cls(
             codes=codes,
@@ -210,22 +248,40 @@ class MkbIndex:
             entries_by_id=entries_by_id,
             entry_by_code=entry_by_code,
             classifier=classifier,
+            tokenizer=tokenizer,
         )
 
     @classmethod
-    def from_jsonl(cls, vol1_path: str, vol3_path: str) -> MkbIndex:
+    def from_jsonl(
+        cls,
+        vol1_path: str,
+        vol3_path: str,
+        *,
+        base_ref: ClassifierRef = DEFAULT_MKB10_REF,
+        tokenizer: Tokenizer = normalize,
+    ) -> MkbIndex:
+        """Сборка индекса из выгрузки.
+
+        ``base_ref`` задаёт источник кодирования (МКБ-10 НСИ по умолчанию,
+        ``DEFAULT_ICD10CM_REF`` для английского); версии справочников
+        подтягиваются из meta-файлов рядом с jsonl. ``tokenizer`` — язык
+        препроцессинга (``preprocess_en.normalize`` для ICD-10-CM).
+        """
+
         def read(path: str) -> list[dict]:
             with open(path, encoding="utf-8") as f:
                 return [json.loads(line) for line in f if line.strip()]
 
         classifier = ClassifierRef(
-            system=DEFAULT_MKB10_REF.system,
-            name=DEFAULT_MKB10_REF.name,
+            system=base_ref.system,
+            name=base_ref.name,
             version=_meta_version(vol1_path),
-            index_oid=DEFAULT_MKB10_REF.index_oid,
+            index_oid=base_ref.index_oid,
             index_version=_meta_version(vol3_path),
         )
-        return cls.from_records(read(vol1_path), read(vol3_path), classifier)
+        return cls.from_records(
+            read(vol1_path), read(vol3_path), classifier, tokenizer
+        )
 
 
 def _meta_version(jsonl_path: str) -> str | None:

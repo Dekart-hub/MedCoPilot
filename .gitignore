@@ -24,3 +24,6 @@ htmlcov/
 
 # Run outputs (per-case spans, violations, reports — regenerable)
 runs/
+
+# Справочники кодирования (качаются/парсятся локально, см. scripts/parse_icd10cm.py)
+data/icd10cm/
