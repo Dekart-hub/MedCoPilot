@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# IDE workspace files
+*.code-workspace
+
 # Secrets & local env overrides
 .env
 .env.*
