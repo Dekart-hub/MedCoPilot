@@ -1,7 +1,12 @@
 from abc import ABC, abstractmethod
 
-from soap.soap import SoapNoteId
-from .annotation import CorrectedSoapNote, CorrectedSoapNoteId
+from soap.soap import SoapNoteId, SoapReportId
+from .annotation import (
+    AddedSoapNote,
+    AddedSoapNoteId,
+    CorrectedSoapNote,
+    CorrectedSoapNoteId,
+)
 
 
 class EntityNotFoundError(Exception):
@@ -40,5 +45,41 @@ class CorrectedSoapNoteRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def list_by_report(self, report_id: SoapReportId) -> list[CorrectedSoapNote]:
+        raise NotImplementedError
+
+    @abstractmethod
     async def list_all(self) -> list[CorrectedSoapNote]:
+        raise NotImplementedError
+
+
+class AddedSoapNoteRepository(ABC):
+    """Интерфейс для сохранения SOAP-нот, добавленных врачом с нуля."""
+
+    @abstractmethod
+    async def save(self, added_note: AddedSoapNote) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_by_id(self, added_note_id: AddedSoapNoteId) -> AddedSoapNote:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def find_by_id(
+        self, added_note_id: AddedSoapNoteId
+    ) -> AddedSoapNote | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def find_by_added_note(
+        self, note_id: SoapNoteId
+    ) -> AddedSoapNote | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_by_report(self, report_id: SoapReportId) -> list[AddedSoapNote]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_all(self) -> list[AddedSoapNote]:
         raise NotImplementedError
