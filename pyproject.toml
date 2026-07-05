@@ -15,5 +15,14 @@ dependencies = [
     "uvicorn>=0.49.0",
 ]
 
+# Опциональные: только для NliGroundingScorer (Tier 2 groundedness).
+# Юнит-тесты работают и без них (модель подменяется фейком), нужны только для
+# scripts/smoke_nli_scorer.py и реального прод-использования этого скорера.
+[project.optional-dependencies]
+nli = [
+    "transformers>=4.46.0",
+    "torch>=2.5.0",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
