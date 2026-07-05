@@ -1,13 +1,13 @@
-from .annotation import SoapAnnotation
-from .annotation_repository import AnnotationRepository, EntityNotFoundError
-from .use_cases import SubmitSoapAnnotation, SubmitSoapAnnotationRequest
+from .annotation import CorrectedSoapNote
+from .annotation_repository import CorrectedSoapNoteRepository, EntityNotFoundError
+from .use_cases import SubmitCorrectedSoapNote, SubmitCorrectedSoapNoteRequest
 from shared.value_objects import AnnotatorId
 
 __all__ = [
-    "SoapAnnotation",
-    "AnnotationRepository",
+    "CorrectedSoapNote",
+    "CorrectedSoapNoteRepository",
     "EntityNotFoundError",
-    "SubmitSoapAnnotation",
-    "SubmitSoapAnnotationRequest",
+    "SubmitCorrectedSoapNote",
+    "SubmitCorrectedSoapNoteRequest",
     "AnnotatorId",
 ]
