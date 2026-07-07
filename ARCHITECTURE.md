@@ -20,7 +20,7 @@ transcript
   → Extractor (LLM, one call per problem): SOAP note with per-claim citations
   → Tier 0 gate (deterministic): citations resolve? sections populated?
   → Tier 1 scorer (deterministic): lexical grounding per claim + review flags
-  → ICD coding (BM25): candidate МКБ-10 codes for the Assessment
+  → ICD coding (BM25): candidate ICD-10 codes for the Assessment
   → ReportView: one joined tree per note → REST DTO / demo UI
 ```
 
@@ -50,8 +50,8 @@ the benchmark shows lexical grounding is insufficient.
 - `src/soap/score/` — `tier0.py` (structural gate) and `scorer.py` (lexical
   grounding). Both produce side-car aggregates keyed by note/claim ids; the
   domain write-model is never mutated by evaluation.
-- `src/soap/coding/` — BM25 retrieval over the МКБ-10 index, candidate codes
-  for the Assessment claim (English ICD-10 migration pending).
+- `src/soap/coding/` — BM25 retrieval over the Russian ICD-10 (NSI) index,
+  candidate codes for the Assessment claim (English ICD-10 migration pending).
 - `src/soap/view.py` — the only place the side-car aggregates are joined into
   one linearized read-model consumed by the API and the UI.
 - `src/bench/` — offline benchmark: dataset adapter, LLM judge, resumable

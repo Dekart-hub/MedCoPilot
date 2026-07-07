@@ -15,7 +15,7 @@ Implemented:
 - Tier 0 structural gate: citation-to-transcript resolution + empty-section flags
 - Tier 1 lexical grounding: per-claim scores, threshold-based `is_flagged`,
   note-level `needs_review`
-- ICD (МКБ-10) candidate coding for the Assessment section (BM25 baseline)
+- ICD-10 candidate coding for the Assessment section (BM25 baseline)
 - REST API (FastAPI) + Streamlit demo UI + Docker image
 - Offline quality benchmark on ACI-Bench-Refined (LLM-as-judge, see below)
 
