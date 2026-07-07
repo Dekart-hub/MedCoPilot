@@ -15,6 +15,12 @@ class OpenAISettings(BaseModel):
     temperature: float = 0.0
 
 
+class ScoringSettings(BaseModel):
+    """Quality-evaluation knobs (Tier 1 review flags)."""
+
+    review_threshold: float = 0.6
+
+
 class Settings(BaseSettings):
     """Корневые настройки приложения.
 
@@ -30,6 +36,7 @@ class Settings(BaseSettings):
     )
 
     openai: OpenAISettings
+    scoring: ScoringSettings = ScoringSettings()
 
 
 @lru_cache

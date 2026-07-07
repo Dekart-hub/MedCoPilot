@@ -115,3 +115,104 @@ def test_missing_turn_reference_scores_zero(dialogue_and_turns):
     result = _score(dialogue, note)
 
     assert result.score.score == pytest.approx(0.75)
+
+
+def test_claim_scores_cover_all_sections_in_order(dialogue_and_turns):
+    dialogue, t = dialogue_and_turns
+    note = SoapNote(
+        id=Id.new(),
+        subjective=_claim("sharp headache", t["s"]),
+        objective=_claim("blood pressure 130 over 85", t["o"]),
+        assessment=_claim("tension headache", t["a"]),
+        plan=_claim("take ibuprofen", t["p"]),
+    )
+    result = _score(dialogue, note)
+
+    assert [cs.section for cs in result.claim_scores] == [
+        "subjective",
+        "objective",
+        "assessment",
+        "plan",
+    ]
+    assert [cs.claim_id for cs in result.claim_scores] == [
+        note.subjective.id,
+        note.objective.id,
+        note.assessment.id,
+        note.plan.id,
+    ]
+
+
+def test_ungrounded_claim_is_flagged(dialogue_and_turns):
+    dialogue, t = dialogue_and_turns
+    fabricated = SoapClaim(
+        id=Id.new(),
+        claim="fever of 39",
+        evidence=SoapEvidence(text="temperature is 39 degrees", turn_id=t["o"].id),
+    )
+    note = SoapNote(
+        id=Id.new(),
+        subjective=_claim("sharp headache", t["s"]),
+        objective=fabricated,
+        assessment=_claim("tension headache", t["a"]),
+        plan=_claim("take ibuprofen", t["p"]),
+    )
+    result = _score(dialogue, note)
+    by_id = {cs.claim_id: cs for cs in result.claim_scores}
+
+    assert by_id[fabricated.id].is_flagged is True
+    assert by_id[note.subjective.id].is_flagged is False
+
+
+def test_review_threshold_is_configurable(dialogue_and_turns):
+    dialogue, t = dialogue_and_turns
+    note = SoapNote(
+        id=Id.new(),
+        subjective=_claim("sharp headache since yesterday morning", t["s"]),
+        objective=_claim("blood pressure 130 over 85", t["o"]),
+        assessment=_claim("tension headache", t["a"]),
+        plan=_claim("take ibuprofen and rest", t["p"]),
+    )
+    strict = asyncio.run(
+        LexicalGroundingScorer(review_threshold=1.0).score(dialogue, note)
+    )
+    lax = asyncio.run(
+        LexicalGroundingScorer(review_threshold=0.0).score(dialogue, note)
+    )
+
+    # Fully grounded quotes score exactly 1.0: `score < threshold` flags
+    # nothing at threshold 1.0 and nothing at 0.0 either.
+    assert all(not cs.is_flagged for cs in strict.claim_scores)
+    assert all(not cs.is_flagged for cs in lax.claim_scores)
+
+    partially = SoapNote(
+        id=Id.new(),
+        subjective=SoapClaim(
+            id=Id.new(),
+            claim="headache",
+            evidence=SoapEvidence(
+                text="sharp headache with nausea and vomiting", turn_id=t["s"].id
+            ),
+        ),
+        objective=_claim("blood pressure 130 over 85", t["o"]),
+        assessment=_claim("tension headache", t["a"]),
+        plan=_claim("take ibuprofen and rest", t["p"]),
+    )
+    strict_partial = asyncio.run(
+        LexicalGroundingScorer(review_threshold=1.0).score(dialogue, partially)
+    )
+    assert strict_partial.claim_scores[0].is_flagged is True
+
+
+def test_note_score_is_mean_of_claim_scores(dialogue_and_turns):
+    dialogue, t = dialogue_and_turns
+    note = SoapNote(
+        id=Id.new(),
+        subjective=_claim("sharp headache", t["s"]),
+        objective=_claim("blood pressure 130 over 85", t["o"]),
+        assessment=_claim("tension headache", t["a"]),
+        plan=_claim("take ibuprofen", t["p"]),
+    )
+    result = _score(dialogue, note)
+    mean = sum(cs.score.score for cs in result.claim_scores) / 4
+
+    assert result.score.score == pytest.approx(mean)

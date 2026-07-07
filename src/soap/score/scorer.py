@@ -8,7 +8,7 @@ from dialogue import Dialogue, DialogueTurn, DialogueTurnId
 
 from shared.value_objects import FloatRangedScore, Id
 from ..soap import SoapClaim, SoapNote
-from .score import SoapNoteConfidenceScore
+from .score import ClaimConfidenceScore, SoapNoteConfidenceScore
 
 
 class ConfidenceScorer(ABC):
@@ -52,16 +52,15 @@ def _clipped_unigram_precision(evidence: str, source: str) -> float:
 
 
 class LexicalGroundingScorer(ConfidenceScorer):
-    """Простейший baseline-скорер уверенности (Tier 1, лексический).
+    """Lexical Tier 1 baseline: clipped unigram precision per claim.
 
-    Для каждого claim в SOAP-ноте берётся его цитата (``evidence.text``) и
-    реплика диалога, на которую он ссылается (``evidence.turn_id``), после
-    чего считается clipped unigram precision цитаты относительно этой реплики.
-    Итоговый score ноты — среднее по четырём секциям (S / O / A / P).
-
-    Это не заменяет NLI/LLM-проверку, а служит дешёвым детерминированным
-    сигналом: «насколько процитированный текст вообще опирается на сказанное».
+    For each claim the cited quote is compared against the dialogue turn it
+    references. A claim scoring below ``review_threshold`` is flagged for
+    human review; the note-level score is the mean over the four sections.
     """
+
+    def __init__(self, review_threshold: float = 0.6) -> None:
+        self._review_threshold = review_threshold
 
     async def score(
         self, dialogue: Dialogue, soap_note: SoapNote
@@ -70,20 +69,24 @@ class LexicalGroundingScorer(ConfidenceScorer):
             turn.id: turn for turn in dialogue.turns
         }
 
-        claims: list[SoapClaim] = [
-            soap_note.subjective,
-            soap_note.objective,
-            soap_note.assessment,
-            soap_note.plan,
-        ]
+        claim_scores: list[ClaimConfidenceScore] = []
+        for section, claim in soap_note.sections():
+            value = self._score_claim(claim, turns_by_id)
+            claim_scores.append(
+                ClaimConfidenceScore(
+                    claim_id=claim.id,
+                    section=section,
+                    score=FloatRangedScore(value),
+                    is_flagged=value < self._review_threshold,
+                )
+            )
 
-        per_claim = [self._score_claim(claim, turns_by_id) for claim in claims]
-        mean_score = sum(per_claim) / len(per_claim)
-
+        mean_score = sum(cs.score.score for cs in claim_scores) / len(claim_scores)
         return SoapNoteConfidenceScore(
             id=Id.new(),
             score=FloatRangedScore(mean_score),
             soap_note_id=soap_note.id,
+            claim_scores=claim_scores,
         )
 
     @staticmethod
