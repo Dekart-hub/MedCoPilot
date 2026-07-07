@@ -56,7 +56,9 @@ class LexicalGroundingScorer(ConfidenceScorer):
 
     For each claim the cited quote is compared against the dialogue turn it
     references. A claim scoring below ``review_threshold`` is flagged for
-    human review; the note-level score is the mean over the four sections.
+    human review; the note-level score is the mean over the non-empty
+    sections. Empty sections are skipped here (no score, no flag) and are
+    surfaced by the Tier 0 gate alone, matching its empty-section rule.
     """
 
     def __init__(self, review_threshold: float = 0.6) -> None:
@@ -71,6 +73,10 @@ class LexicalGroundingScorer(ConfidenceScorer):
 
         claim_scores: list[ClaimConfidenceScore] = []
         for section, claim in soap_note.sections():
+            # Skip empty sections to match the Tier 0 gate rule: they get no
+            # score and no flag, and are surfaced by Tier 0's empty_sections.
+            if not claim.claim.strip():
+                continue
             value = self._score_claim(claim, turns_by_id)
             claim_scores.append(
                 ClaimConfidenceScore(
@@ -81,7 +87,12 @@ class LexicalGroundingScorer(ConfidenceScorer):
                 )
             )
 
-        mean_score = sum(cs.score.score for cs in claim_scores) / len(claim_scores)
+        # Guard the degenerate all-empty note against division by zero.
+        mean_score = (
+            sum(cs.score.score for cs in claim_scores) / len(claim_scores)
+            if claim_scores
+            else 0.0
+        )
         return SoapNoteConfidenceScore(
             id=Id.new(),
             score=FloatRangedScore(mean_score),

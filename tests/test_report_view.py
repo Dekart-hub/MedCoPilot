@@ -200,6 +200,65 @@ def test_unresolved_citation_flags_claim_and_note():
     assert note_view.needs_review is True
 
 
+def test_empty_section_alone_forces_review():
+    note = _note()
+    report = _report(note)
+    # No claim is flagged by Tier 1; only Tier 0 records an empty section.
+    confidence = _confidence_with_claims(
+        report, note, note.plan.id, flagged=False
+    )
+    tier0 = SoapTier0Report(
+        id=Id.new(),
+        soap_report_id=report.id,
+        results=[
+            Tier0NoteResult(
+                soap_note_id=note.id,
+                passed=True,
+                empty_sections=["objective"],
+                unresolved_claim_ids=[],
+                citations_total=3,
+                citations_resolved=3,
+            )
+        ],
+    )
+
+    view = to_view(report, confidence, _empty_coding(report), tier0)
+    note_view = view.notes[0]
+
+    assert note_view.tier0.passed is True
+    assert note_view.tier0.empty_sections == ["objective"]
+    assert not any(
+        c.is_flagged
+        for c in (
+            note_view.subjective,
+            note_view.objective,
+            note_view.assessment,
+            note_view.plan,
+        )
+    )
+    # Empty section drives review on its own via the view formula.
+    assert note_view.needs_review is True
+
+
+def test_missing_tier0_result_falls_back_without_forcing_review():
+    note = _note()
+    report = _report(note)
+    confidence = _confidence_with_claims(
+        report, note, note.plan.id, flagged=False
+    )
+    # Report present but carrying no result for this note -> _tier0_view(None).
+    empty_tier0 = SoapTier0Report(
+        id=Id.new(), soap_report_id=report.id, results=[]
+    )
+
+    view = to_view(report, confidence, _empty_coding(report), empty_tier0)
+    note_view = view.notes[0]
+
+    assert note_view.tier0.passed is True
+    assert note_view.tier0.citations_total == 0
+    assert note_view.needs_review is False
+
+
 def test_clean_note_does_not_need_review():
     note = _note()
     report = _report(note)

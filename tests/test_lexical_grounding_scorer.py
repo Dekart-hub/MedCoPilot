@@ -203,6 +203,36 @@ def test_review_threshold_is_configurable(dialogue_and_turns):
     assert strict_partial.claim_scores[0].is_flagged is True
 
 
+def test_empty_section_is_skipped_and_not_scored(dialogue_and_turns):
+    dialogue, t = dialogue_and_turns
+    # An empty section is surfaced by Tier 0 alone (see run_tier0): Tier 1 must
+    # skip it so it produces no claim score, no flag and does not drag the mean.
+    note = SoapNote(
+        id=Id.new(),
+        subjective=_claim("sharp headache since yesterday morning", t["s"]),
+        objective=SoapClaim(
+            id=Id.new(),
+            claim="",
+            evidence=SoapEvidence(text="", turn_id=t["o"].id),
+        ),
+        assessment=_claim("tension headache", t["a"]),
+        plan=_claim("take ibuprofen and rest", t["p"]),
+    )
+
+    result = _score(dialogue, note)
+
+    # No entry for the empty objective section; only the three real claims.
+    assert [cs.section for cs in result.claim_scores] == [
+        "subjective",
+        "assessment",
+        "plan",
+    ]
+    assert len(result.claim_scores) == 3
+    assert all(not cs.is_flagged for cs in result.claim_scores)
+    # Mean over non-empty sections only: (1 + 1 + 1) / 3, not (1 + 0 + 1 + 1) / 4.
+    assert result.score.score == pytest.approx(1.0)
+
+
 def test_note_score_is_mean_of_claim_scores(dialogue_and_turns):
     dialogue, t = dialogue_and_turns
     note = SoapNote(
