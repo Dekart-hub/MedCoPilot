@@ -1,316 +1,176 @@
 # MedCoPilot — SOAP Documentation Service
 
-A standalone microservice that transforms raw doctor-patient consultation transcripts into structured, verifiable SOAP notes with per-item citations and tiered quality evaluation.
+A standalone microservice that turns a raw doctor–patient consultation
+transcript into structured, verifiable SOAP notes. Every extracted claim
+carries a verbatim evidence quote from the transcript, a deterministic
+structural gate (Tier 0) verifies the citations, and a lexical grounding
+score (Tier 1) flags claims that need human review.
 
-## Overview
+## Status
 
-MedCoPilot addresses a critical problem in healthcare: doctors spend a large share of each visit on administrative documentation. This service takes a raw text transcript of a doctor-patient dialogue and returns a structured, validated, and verifiable SOAP note ready for EHR integration — where every extracted fact can be traced back to what was actually said.
+Implemented:
 
-### Key Features
+- Extraction pipeline: planner segments the visit into clinical problems,
+  an extractor emits one SOAP note per problem, each claim cites its source turn
+- Tier 0 structural gate: citation-to-transcript resolution + empty-section flags
+- Tier 1 lexical grounding: per-claim scores, threshold-based `is_flagged`,
+  note-level `needs_review`
+- ICD (МКБ-10) candidate coding for the Assessment section (BM25 baseline)
+- REST API (FastAPI) + Streamlit demo UI + Docker image
+- Offline quality benchmark on ACI-Bench-Refined (LLM-as-judge, see below)
 
-- **Structured SOAP Extraction**: Converts raw transcripts into Subjective, Objective, Assessment, and Plan sections
-- **Per-Item Citations**: Every extracted claim carries a verbatim evidence quote from the transcript
-- **Tiered Quality Evaluation**:
-  - **Tier 0**: Structural validation (deterministic gate)
-  - **Tier 1**: Groundedness verification via NLI (DeBERTa-v3-MNLI) for S/O sections
-  - **Tier 2**: Clinical quality rubric (LLM-as-judge) for A/P sections
-- **FHIR Integration**: Syncs validated notes to mock EHR as FHIR DocumentReference
-- **Human-in-the-Loop**: Review interface for corrections and training data generation
+Not yet implemented (planned): FHIR sync to a mock EHR, PII de-identification,
+in-service Tier 2 clinical rubric (an offline LLM judge exists in the benchmark).
 
-## Architecture
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the design principles.
 
+## Quick start
+
+Prerequisites: Python 3.12+, [uv](https://github.com/astral-sh/uv).
+
+```bash
+git clone https://github.com/Dekart-hub/MedCoPilot.git
+cd MedCoPilot
+uv sync                      # create .venv and install dependencies
+cp .env.example .env         # then put your real OPENAI__API_KEY into .env
+make run                     # serve http://localhost:8000 (Swagger UI at /docs)
 ```
-Transcript → Preprocessing → LLM Extraction → Tier 0 (Structural) → Tier 1 (NLI) → Tier 2 (Rubric) → EHR Sync → SOAP JSON
+
+Useful targets (see `make help`):
+
+```bash
+make dev            # run with auto-reload
+make test           # run the test suite (uv run pytest -q)
+make ui             # Streamlit demo UI (backend must be running separately)
+make docker-build   # build the Docker image
+make docker-run     # run the container with env from .env
 ```
 
-The service follows a deterministic spine with LLM stages wrapped by validation layers, ensuring failures are caught without model cost.
+### Docker
 
-## Project Structure
+```bash
+docker build -t medcopilot:latest .
+docker run --rm --env-file .env -p 8000:8000 medcopilot:latest
+curl http://localhost:8000/health   # {"status":"ok"}
+```
+
+## Configuration
+
+Environment variables (nested sections use `__` as delimiter, read from `.env`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENAI__API_KEY` | — (required) | key for the OpenAI-compatible LLM endpoint |
+| `OPENAI__MODEL` | `gpt-4o-mini` | extraction model |
+| `OPENAI__BASE_URL` | (OpenAI) | alternative OpenAI-compatible endpoint |
+| `OPENAI__TEMPERATURE` | `0.0` | sampling temperature |
+| `SCORING__REVIEW_THRESHOLD` | `0.6` | Tier 1 grounding score below which a claim is flagged |
+
+## API
+
+| Method & path | Purpose |
+|---|---|
+| `GET /health` | liveness |
+| `GET /ready` | readiness (dependencies built) |
+| `GET /api/v1/dialogues` | list dialogues |
+| `POST /api/v1/dialogues` | create a dialogue from structured turns |
+| `POST /api/v1/dialogues/from-text` | create a dialogue from raw text (one `role text` line per turn) |
+| `GET /api/v1/dialogues/{id}` | fetch a dialogue |
+| `POST /api/v1/reports` | generate a scored SOAP report for a dialogue |
+
+Interactive docs: `http://localhost:8000/docs`.
+
+Example — generate a report:
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/dialogues/from-text \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "person My chest feels tight on the stairs since yesterday\nmedic Any pain radiating?\nperson No, just tight when climbing"}'
+# -> {"id": "<dialogue_id>", ...}
+
+curl -s -X POST http://localhost:8000/api/v1/reports \
+  -H 'Content-Type: application/json' \
+  -d '{"dialogue_id": "<dialogue_id>"}'
+```
+
+Response shape (abridged):
+
+```json
+{
+  "soap_notes": [
+    {
+      "subjective": {
+        "claim": "Chest tightness on exertion since yesterday",
+        "evidence_text": "chest feels tight on the stairs since yesterday",
+        "turn_id": "…",
+        "grounding_score": 0.95,
+        "is_flagged": false
+      },
+      "objective": { "…": "…" },
+      "assessment": { "…": "…", "codings": [ { "code": "…", "title": "…" } ] },
+      "plan": { "…": "…" },
+      "tier0": {
+        "passed": true,
+        "empty_sections": [],
+        "citations_total": 4,
+        "citations_resolved": 4
+      },
+      "needs_review": false,
+      "confidence": 0.93
+    }
+  ]
+}
+```
+
+## Offline benchmarking
+
+Quality of generated SOAP notes is measured offline on
+[ACI-Bench-Refined](https://huggingface.co/datasets/ClinicianFOCUS/ACI-Bench-Refined)
+(3-class LLM-as-judge: excellent / normal / bad, plus a manual spot-check).
+
+```bash
+uv sync --extra bench
+uv run python scripts/fetch_aci_bench.py                  # download dataset (AGPL, gitignored)
+uv run python scripts/bench_soap.py --split test          # reportable run (20 encounters)
+uv run python scripts/bench_soap.py --resume <run_id>     # finish an interrupted run
+uv run python scripts/bench_agreement.py runs/soap_bench/<run_id>/spot_check.csv
+```
+
+Artifacts land in `runs/soap_bench/<run_id>/`: `report.json`, `summary.md`
+(class distribution, subscores, funnel, limitations) and `spot_check.csv`
+for human verification.
+
+## Data & licensing
+
+No model is trained or fine-tuned in this project — the tiered evaluation is
+deliberately designed to need zero training data. ACI-Bench-Refined is used
+for **evaluation only**; it is AGPL-licensed and therefore never committed to
+this repository (`data/` is gitignored) — reproduce it locally with
+`scripts/fetch_aci_bench.py`.
+
+## Project structure
 
 ```
 MedCoPilot/
-├── app/
-│   ├── __init__.py
-│   ├── main.py          # FastAPI application with endpoints
-│   └── models.py        # Pydantic models (request/response schemas)
-├── tests/
-│   └── test_api.py      # Pytest test suite
-├── pyproject.toml       # Project configuration and dependencies
-└── README.md
+├── src/
+│   ├── app/           # FastAPI app + /api/v1 routes and DTOs
+│   ├── bench/         # offline ACI-Bench benchmark (runner, judge, report)
+│   ├── config/        # pydantic-settings (env-driven)
+│   ├── di/            # dependency container and FastAPI deps
+│   ├── dialogue/      # dialogue domain: turns, repository, use cases
+│   ├── infra/         # LLM client factory (OpenAI-compatible)
+│   ├── shared/        # ids, entities, prompts, langgraph agent
+│   └── soap/          # SOAP domain: extractor, Tier 0 gate, scorer, coding, view
+├── scripts/           # dataset fetch, benchmark CLI, eval utilities
+├── tests/             # pytest suite
+├── ui/                # Streamlit demo client
+├── Dockerfile
+└── Makefile           # run / dev / test / ui / docker-* targets
 ```
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.12+
-- [uv](https://github.com/astral-sh/uv) package manager
-
-### Installation
-
-1. **Clone the repository** (if applicable):
-   ```bash
-   git clone <repository-url>
-   cd MedCoPilot
-   ```
-
-2. **Install dependencies using uv**:
-   ```bash
-   uv sync
-   ```
-   
-   This will:
-   - Create a virtual environment (`.venv/`)
-   - Install all dependencies from `pyproject.toml`
-   - Generate `uv.lock` for reproducible builds
-
-3. **Verify installation**:
-   ```bash
-   uv run python -c "import fastapi; print(f'FastAPI {fastapi.__version__} installed')"
-   ```
-
-### Running the Server
-
-Start the FastAPI development server with auto-reload:
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-The server will be available at: **http://localhost:8000**
-
-### Running Tests
-
-Execute the test suite:
-
-```bash
-uv run pytest tests/ -v
-```
-
-Expected output:
-```
-tests/test_api.py::test_health_returns_200 PASSED
-tests/test_api.py::test_health_response_model_parses PASSED
-...
-======================== 18 passed in X.XXs =========================
-```
-
-## API Documentation
-
-### Interactive Swagger UI
-
-Once the server is running, access the interactive API documentation:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
-
-### Endpoints
-
-#### `GET /health`
-
-Health check endpoint for orchestrators (Kubernetes, load balancers).
-
-**Response**:
-```json
-{
-  "status": "healthy",
-  "service": "medcopilot-soap",
-  "version": "1.0.0",
-  "checks": {
-    "llm_reachable": true,
-    "fhir_mock_reachable": true
-  }
-}
-```
-
-#### `POST /generate-soap`
-
-Main business endpoint: generates a verifiable SOAP note from a consultation transcript.
-
-**Request** (minimal contract):
-```json
-{
-  "transcript": "Doctor: What brings you in today?\nPatient: My chest feels tight on the stairs. It started yesterday.\nDoctor: Any pain radiating?\nPatient: No, just tight when climbing."
-}
-```
-
-**Request** (full contract with optional fields):
-```json
-{
-  "transcript": "Doctor: Hello, what brings you here today?\nPatient: My chest feels tight on the stairs. It started yesterday.\nDoctor: Any pain radiating?\nPatient: No, just tight when climbing.",
-  "patient_id": "patient-uuid-12345",
-  "encounter_id": "encounter-uuid-67890",
-  "settings": {
-    "language": "en",
-    "include_pii_deid": true,
-    "confidence_threshold": 0.6
-  }
-}
-```
-
-**Response**:
-```json
-{
-  "note": {
-    "subjective": [
-      {
-        "text": "Patient reports chest tightness on stairs for ~1 day",
-        "evidence_quote": "My chest feels tight on the stairs. It started yesterday.",
-        "groundedness_score": 0.96,
-        "is_flagged": false
-      }
-    ],
-    "objective": [],
-    "assessment": [
-      {
-        "text": "Exertional chest discomfort, query angina",
-        "evidence_quote": "My chest feels tight on the stairs",
-        "groundedness_score": null,
-        "is_flagged": false
-      }
-    ],
-    "plan": [
-      {
-        "text": "Refer to cardiology for exercise tolerance test within 1 week",
-        "evidence_quote": "My chest feels tight on the stairs",
-        "groundedness_score": null,
-        "is_flagged": false
-      }
-    ]
-  },
-  "scores": {
-    "tier_0_structural": {
-      "passed": true,
-      "resolved_citations_count": 3,
-      "failure_reason": null
-    },
-    "tier_1_groundedness": {
-      "groundedness_score": 0.96,
-      "fabrication_flags": []
-    },
-    "tier_2_clinical": [
-      {
-        "section": "assessment",
-        "appropriateness": {"rationale": "Angina query is warranted.", "score": 5},
-        "completeness": {"rationale": "Differential could be broader.", "score": 4},
-        "placement": {"rationale": "Correctly placed.", "score": 5},
-        "conciseness": {"rationale": "Concise.", "score": 5},
-        "safety": {"rationale": "No fabrication.", "score": 5}
-      }
-    ],
-    "composite_confidence_score": 0.94,
-    "needs_review": false
-  },
-  "ehr": {
-    "synced": true,
-    "document_reference_id": "DocumentReference/dr-abc123",
-    "resource_type": "DocumentReference",
-    "fhir_endpoint": "http://mock-ehr:8080/fhir",
-    "failure_reason": null
-  },
-  "flags": [],
-  "metadata": {
-    "generator_model": "claude-3-5-sonnet-20241022",
-    "judge_model": "claude-3-haiku-20240307",
-    "tokens_used": 1842,
-    "latency_ms": 3200,
-    "preprocessing_applied": ["clean", "speaker-turn split", "PII de-id"],
-    "extra": {"speaker_turns": 4, "pii_redacted": 0}
-  }
-}
-```
-
-## Testing
-
-The test suite covers:
-
-- Health endpoint functionality
-- Request validation (Pydantic)
-- Minimal and full contract acceptance
-- Response structure verification
-- Pydantic model round-trips
-- Tier 0 short-circuit behavior
-- Edge cases and error handling
-
-Run tests with verbose output:
-```bash
-uv run pytest tests/ -v
-```
-
-Run tests with coverage (requires `pytest-cov`):
-```bash
-uv run pytest tests/ --cov=app --cov-report=term-missing
-```
-
-## Development
-
-### Adding Dependencies
-
-Add new dependencies using uv:
-```bash
-uv add <package-name>
-```
-
-Example:
-```bash
-uv add httpx2  # For async HTTP client
-```
-
-### Code Style
-
-The project uses:
-- **Pydantic v2** for data validation
-- **FastAPI** for REST API
-- **pytest** for testing
-- Type hints throughout
-
-### Project Configuration
-
-All project metadata and dependencies are defined in `pyproject.toml`:
-
-```toml
-[project]
-name = "medcopilot"
-version = "0.1.0"
-description = "SOAP Documentation Service for medical transcripts"
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.138.0",
-    "uvicorn>=0.49.0",
-    "pydantic>=2.13.4",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.1.1",
-    "httpx>=0.28.1",
-]
-```
-
-## Current Status
-
-### Implemented
-- FastAPI service with two endpoints (`/health`, `/generate-soap`)
-- Complete Pydantic models matching the proposal contract
-- Per-item citations (evidence quotes) for all SOAP sections
-- Three-tier quality evaluation structure
-- FHIR DocumentReference metadata
-- Comprehensive test suite (18 tests)
-- Swagger UI with examples
 
 ## Team
 
-- Artem Levakov
-- Ivan Alpatov
-- Dmitrii Naumov
-- Anatolii Astanin
-- Aleksandr Romanov (Lead)
+Artem Levakov · Ivan Alpatov · Dmitrii Naumov · Anatolii Astanin ·
+Aleksandr Romanov (Lead)
 
-## License
-
-This project is developed as part of an academic course.
-
----
-
-**Note**: This is currently a mock implementation demonstrating the API contract. The actual pipeline (LLM extraction, NLI evaluation, EHR sync) is planned for subsequent development phases.
+Academic course project (Industrial Project).
