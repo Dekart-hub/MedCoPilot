@@ -24,3 +24,9 @@ htmlcov/
 
 # Run outputs (per-case spans, violations, reports — regenerable)
 runs/
+
+# Datasets (downloaded by scripts; ACI-Bench-Refined is AGPL — never commit)
+data/
+
+# Internal working docs
+docs/
