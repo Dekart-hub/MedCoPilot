@@ -32,6 +32,15 @@ class SoapNote(Entity[SoapNoteId]):
     assessment: SoapClaim
     plan: SoapClaim
 
+    def sections(self) -> list[tuple[str, SoapClaim]]:
+        """Ordered (section name, claim) pairs — single source of S/O/A/P ordering."""
+        return [
+            ("subjective", self.subjective),
+            ("objective", self.objective),
+            ("assessment", self.assessment),
+            ("plan", self.plan),
+        ]
+
 
 @dataclass(eq=False, slots=True)
 class SoapReport(Entity[SoapReportId]):

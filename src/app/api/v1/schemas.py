@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from dialogue import Dialogue
 from soap import ReportView
-from soap.view import AssessmentView, ClaimView, NoteView
+from soap.view import AssessmentView, ClaimView, NoteView, Tier0View
 
 # --------------------------------------------------------------------------- #
 # Запросы.
@@ -69,6 +69,8 @@ class ClaimResponse(BaseModel):
     claim: str
     evidence_text: str
     turn_id: str
+    grounding_score: float | None
+    is_flagged: bool
 
     @classmethod
     def from_view(cls, claim: ClaimView) -> ClaimResponse:
@@ -77,6 +79,8 @@ class ClaimResponse(BaseModel):
             claim=claim.claim,
             evidence_text=claim.evidence_text,
             turn_id=str(claim.turn_id),
+            grounding_score=claim.grounding_score,
+            is_flagged=claim.is_flagged,
         )
 
 
@@ -102,6 +106,8 @@ class AssessmentResponse(BaseModel):
     evidence_text: str
     turn_id: str
     codings: list[CodingResponse]
+    grounding_score: float | None
+    is_flagged: bool
 
     @classmethod
     def from_view(cls, assessment: AssessmentView) -> AssessmentResponse:
@@ -110,6 +116,8 @@ class AssessmentResponse(BaseModel):
             claim=assessment.claim,
             evidence_text=assessment.evidence_text,
             turn_id=str(assessment.turn_id),
+            grounding_score=assessment.grounding_score,
+            is_flagged=assessment.is_flagged,
             codings=[
                 CodingResponse(
                     code=c.code,
@@ -129,12 +137,30 @@ class AssessmentResponse(BaseModel):
         )
 
 
+class Tier0Response(BaseModel):
+    passed: bool
+    empty_sections: list[str]
+    citations_total: int
+    citations_resolved: int
+
+    @classmethod
+    def from_view(cls, tier0: Tier0View) -> Tier0Response:
+        return cls(
+            passed=tier0.passed,
+            empty_sections=tier0.empty_sections,
+            citations_total=tier0.citations_total,
+            citations_resolved=tier0.citations_resolved,
+        )
+
+
 class NoteResponse(BaseModel):
     id: str
     subjective: ClaimResponse
     objective: ClaimResponse
     assessment: AssessmentResponse
     plan: ClaimResponse
+    tier0: Tier0Response
+    needs_review: bool
     confidence: float | None
 
     @classmethod
@@ -145,6 +171,8 @@ class NoteResponse(BaseModel):
             objective=ClaimResponse.from_view(note.objective),
             assessment=AssessmentResponse.from_view(note.assessment),
             plan=ClaimResponse.from_view(note.plan),
+            tier0=Tier0Response.from_view(note.tier0),
+            needs_review=note.needs_review,
             confidence=note.confidence,
         )
 
