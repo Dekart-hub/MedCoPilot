@@ -26,6 +26,25 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design principles.
 
 ## Quick start
 
+## Offline Benchmarking
+
+Quality of generated SOAP notes is measured offline on
+[ACI-Bench-Refined](https://huggingface.co/datasets/ClinicianFOCUS/ACI-Bench-Refined)
+(3-class LLM-as-judge: excellent / normal / bad, plus a manual spot-check).
+
+```bash
+uv sync --extra bench
+uv run python scripts/fetch_aci_bench.py                  # download dataset (AGPL, gitignored)
+uv run python scripts/bench_soap.py --split test          # reportable run (20 encounters)
+uv run python scripts/bench_soap.py --resume <run_id>     # finish an interrupted run
+uv run python scripts/bench_agreement.py runs/soap_bench/<run_id>/spot_check.csv
+```
+
+Artifacts land in `runs/soap_bench/<run_id>/`: `report.json`, `summary.md`
+(class distribution, subscores, funnel, limitations) and `spot_check.csv`
+for human verification.
+
+## Project Structure
 Prerequisites: Python 3.12+, [uv](https://github.com/astral-sh/uv).
 
 ```bash
