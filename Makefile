@@ -6,7 +6,7 @@ HOST ?= 0.0.0.0
 PORT ?= 8000
 export PYTHONPATH := src
 
-.PHONY: help install run dev test ui
+.PHONY: help install run dev test ui docker-build docker-run
 
 help: ## Показать список целей
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -26,3 +26,9 @@ test: ## Прогнать тесты
 
 ui: ## Запустить Streamlit-демо (бэкенд поднимать отдельно через make dev)
 	uv run --project ui streamlit run ui/app.py
+
+docker-build: ## Build the Docker image
+	docker build -t medcopilot:latest .
+
+docker-run: ## Run the container with env from .env
+	docker run --rm --env-file $(ENV_FILE) -p $(PORT):8000 medcopilot:latest

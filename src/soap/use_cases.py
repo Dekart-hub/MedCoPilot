@@ -8,6 +8,7 @@ from .coding.normalizer import DiagnosisNormalizer
 from .extractor import SoapExtractor
 from .score.score import SoapConfidenceReport, SoapNoteConfidenceScore
 from .score.scorer import ConfidenceScorer
+from .score.tier0 import run_tier0
 from .coding.coding import SoapNoteCoding
 from .soap import SoapReport
 from .view import ReportView, to_view
@@ -32,6 +33,7 @@ class ExtractScoredSoap:
 
     async def execute(self, dialogue: Dialogue) -> ReportView:
         report = await self.extractor.extract(dialogue)
+        tier0 = run_tier0(dialogue, report)
         scores, codings = await asyncio.gather(
             self._score_all(dialogue, report),
             self._normalize_all(report),
@@ -46,7 +48,7 @@ class ExtractScoredSoap:
             soap_report_id=report.id,
             codings=codings,
         )
-        return to_view(report, confidence, coding)
+        return to_view(report, confidence, coding, tier0)
 
     async def _score_all(
         self, dialogue: Dialogue, report: SoapReport

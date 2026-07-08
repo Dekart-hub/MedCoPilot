@@ -50,7 +50,9 @@ async def build_container() -> Container:
     prompts: PromptStore = InMemoryPromptStore(DEFAULT_PROMPTS)
     agent = LangGraphAgent(build_graph(model, prompts))
     extractor: SoapExtractor = LlmSoapExtractor(agent)
-    scorer: ConfidenceScorer = LexicalGroundingScorer()
+    scorer: ConfidenceScorer = LexicalGroundingScorer(
+        review_threshold=settings.scoring.review_threshold
+    )
     # Заглушка, пока индекс МКБ не собран/не докачан; подменяется на
     # LexicalDiagnosisNormalizer(MkbIndex.from_jsonl(...)), когда данные готовы.
     normalizer: DiagnosisNormalizer = NullDiagnosisNormalizer()

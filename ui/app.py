@@ -125,7 +125,10 @@ def render_report(report: dict) -> None:
         title = f"Запись {i}"
         if confidence is not None:
             title += f"  ·  уверенность {confidence:.0%}"
+        if note.get("needs_review"):
+            title += "  ·  ⚠️ needs review"
         with st.expander(title, expanded=True):
+            _tier0_bar(note.get("tier0"))
             _section("S — Subjective", note["subjective"])
             _section("O — Objective", note["objective"])
             _section("A — Assessment", note["assessment"])
@@ -133,9 +136,31 @@ def render_report(report: dict) -> None:
             _section("P — Plan", note["plan"])
 
 
+def _tier0_bar(tier0: dict | None) -> None:
+    if not tier0:
+        return
+    resolved = (
+        f"{tier0['citations_resolved']}/{tier0['citations_total']} citations resolved"
+    )
+    if tier0["passed"]:
+        st.success(f"Tier 0 passed · {resolved}")
+    else:
+        st.error(f"Tier 0 failed · {resolved}")
+    if tier0.get("empty_sections"):
+        st.caption("Empty sections: " + ", ".join(tier0["empty_sections"]))
+
+
 def _section(label: str, claim: dict) -> None:
     st.markdown(f"**{label}**")
     st.write(claim["claim"])
+    details = []
+    score = claim.get("grounding_score")
+    if score is not None:
+        details.append(f"grounding {score:.0%}")
+    if claim.get("is_flagged"):
+        details.append("⚠️ review")
+    if details:
+        st.caption(" · ".join(details))
 
 
 def _codings(codings: list[dict]) -> None:
