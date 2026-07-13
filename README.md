@@ -16,11 +16,14 @@ Implemented:
 - Tier 1 lexical grounding: per-claim scores, threshold-based `is_flagged`,
   note-level `needs_review`
 - ICD-10 candidate coding for the Assessment section (BM25 baseline)
+- External HAPI FHIR R4 mock EHR: explicit patient/encounter linkage,
+  pre-visit context reads, clinician approval, idempotent `DocumentReference` sync
 - REST API (FastAPI) + Streamlit demo UI + Docker image
 - Offline quality benchmark on ACI-Bench-Refined (LLM-as-judge, see below)
 
-Not yet implemented (planned): FHIR sync to a mock EHR, PII de-identification,
-in-service Tier 2 clinical rubric (an offline LLM judge exists in the benchmark).
+Not yet implemented (planned): production EHR authentication/vendor adapters,
+PII de-identification, in-service Tier 2 clinical rubric (an offline LLM judge
+exists in the benchmark).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design principles.
 
@@ -63,6 +66,10 @@ make test           # run the test suite (uv run pytest -q)
 make ui             # Streamlit demo UI (backend must be running separately)
 make docker-build   # build the Docker image
 make docker-run     # run the container with env from .env
+make mock-ehr-up    # start the external HAPI FHIR R4 mock
+make mock-ehr-seed  # load safe pre-visit fixtures
+make mock-ehr-live-test   # run live adapter + FastAPI integration checks
+make mock-ehr-down        # remove the mock service and its ephemeral data
 ```
 
 ### Docker
@@ -84,6 +91,10 @@ Environment variables (nested sections use `__` as delimiter, read from `.env`):
 | `OPENAI__BASE_URL` | (OpenAI) | alternative OpenAI-compatible endpoint |
 | `OPENAI__TEMPERATURE` | `0.0` | sampling temperature |
 | `SCORING__REVIEW_THRESHOLD` | `0.6` | Tier 1 grounding score below which a claim is flagged |
+| `EHR__ENABLED` | `false` | enable the external development-only mock EHR |
+| `EHR__BASE_URL` | `http://localhost:8080/fhir` | FHIR R4 base URL |
+| `EHR__TIMEOUT_SECONDS` | `10` | mock EHR request timeout |
+| `EHR__IDENTIFIER_SYSTEM` | `urn:medcopilot:soap-report` | stable identifier system for conditional create |
 
 ## API
 
@@ -95,7 +106,11 @@ Environment variables (nested sections use `__` as delimiter, read from `.env`):
 | `POST /api/v1/dialogues` | create a dialogue from structured turns |
 | `POST /api/v1/dialogues/from-text` | create a dialogue from raw text (one `role text` line per turn) |
 | `GET /api/v1/dialogues/{id}` | fetch a dialogue |
+| `GET /api/v1/ehr/dialogues/{id}/context` | fetch tagged pre-visit patient context |
 | `POST /api/v1/reports` | generate a scored SOAP report for a dialogue |
+| `GET /api/v1/reports/{id}/workflow` | inspect approval/sync state |
+| `POST /api/v1/reports/{id}/approve` | record clinician approval |
+| `POST /api/v1/reports/{id}/ehr-sync` | idempotently sync an approved `DocumentReference` |
 
 Interactive docs: `http://localhost:8000/docs`.
 
@@ -141,6 +156,64 @@ Response shape (abridged):
 }
 ```
 
+## Mock EHR workflow
+
+The mock EHR is an external, unauthenticated HAPI FHIR service and is disabled
+by default. Start it, load only the pre-visit fixtures, and enable the adapter:
+
+```bash
+make mock-ehr-up
+make mock-ehr-seed
+EHR__ENABLED=true EHR__BASE_URL=http://localhost:8080/fhir make dev
+```
+
+Verify the linked sample through the application API:
+
+```bash
+curl -s http://localhost:8000/api/v1/ehr/dialogues/\
+11111111-1111-1111-1111-111111111111/context
+```
+
+The seeded sample dialogue is deterministically linked to
+`Patient/mock-patient-001` and `Encounter/mock-encounter-001`. Clinical context
+is restricted to resources tagged `urn:medcopilot:fixture-phase|pre-visit` and
+never includes a Condition attached to the current Encounter. The separate
+post-visit bundle contains the gold diagnosis and can be loaded specifically to
+test that boundary:
+
+```bash
+make mock-ehr-post-visit
+make mock-ehr-live-test
+```
+
+The live test performs both a direct FHIR adapter check and a FastAPI context
+check. It also synchronizes the same stable report twice and verifies HAPI
+returns the same `DocumentReference`. Loading the post-visit bundle first proves
+that the current diagnosis can exist in HAPI without appearing in app context.
+
+Reports are stored as drafts in memory. Approve with
+`{"clinician_ref":"Practitioner/mock-gp-001"}` before sync. Sync creates a FHIR
+`DocumentReference` with a stable report identifier and `If-None-Exist`; a
+repeated local request returns the prior result without another remote write.
+See [mock_ehr/README.md](mock_ehr/README.md) for fixture/linkage details.
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/reports/<report_id>/approve \
+  -H 'Content-Type: application/json' \
+  -d '{"clinician_ref":"Practitioner/mock-gp-001"}'
+
+curl -s -X POST \
+  http://localhost:8000/api/v1/reports/<report_id>/ehr-sync
+```
+
+The mock uses ephemeral H2 storage. To return to a clean pre-visit-only server:
+
+```bash
+make mock-ehr-down
+make mock-ehr-up
+make mock-ehr-seed
+```
+
 ## Offline benchmarking
 
 Quality of generated SOAP notes is measured offline on
@@ -177,11 +250,14 @@ MedCoPilot/
 │   ├── config/        # pydantic-settings (env-driven)
 │   ├── di/            # dependency container and FastAPI deps
 │   ├── dialogue/      # dialogue domain: turns, repository, use cases
-│   ├── infra/         # LLM client factory (OpenAI-compatible)
+│   ├── ehr/           # mock-EHR workflow, approval state, gateway contracts
+│   ├── infra/         # OpenAI-compatible LLM and FHIR R4 adapters
 │   ├── shared/        # ids, entities, prompts, langgraph agent
 │   └── soap/          # SOAP domain: extractor, Tier 0 gate, scorer, coding, view
 ├── scripts/           # dataset fetch, benchmark CLI, eval utilities
 ├── tests/             # pytest suite
+├── mock_ehr/          # linkage manifest and pre/post-visit FHIR fixtures
+├── compose.mock-ehr.yml
 ├── ui/                # Streamlit demo client
 ├── Dockerfile
 └── Makefile           # run / dev / test / ui / docker-* targets

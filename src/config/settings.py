@@ -21,6 +21,15 @@ class ScoringSettings(BaseModel):
     review_threshold: float = 0.6
 
 
+class EhrSettings(BaseModel):
+    """External development-only FHIR R4 service settings."""
+
+    enabled: bool = False
+    base_url: str = "http://localhost:8080/fhir"
+    timeout_seconds: float = 10.0
+    identifier_system: str = "urn:medcopilot:soap-report"
+
+
 class Settings(BaseSettings):
     """Корневые настройки приложения.
 
@@ -37,6 +46,7 @@ class Settings(BaseSettings):
 
     openai: OpenAISettings
     scoring: ScoringSettings = ScoringSettings()
+    ehr: EhrSettings = EhrSettings()
 
 
 @lru_cache

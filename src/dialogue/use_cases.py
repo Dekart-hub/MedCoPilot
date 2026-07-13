@@ -20,6 +20,8 @@ class DialogueTurnInput:
 @dataclass(frozen=True, slots=True)
 class CreateDialogueCommand:
     turns: list[DialogueTurnInput]
+    patient_ref: str | None = None
+    encounter_ref: str | None = None
 
 
 class CreateDialogue:
@@ -39,7 +41,13 @@ class CreateDialogue:
             )
             for turn in command.turns
         ]
-        dialogue = Dialogue(id=Id.new(), turns=turns, created_at=now)
+        dialogue = Dialogue(
+            id=Id.new(),
+            turns=turns,
+            created_at=now,
+            patient_ref=command.patient_ref,
+            encounter_ref=command.encounter_ref,
+        )
         await self._repository.save(dialogue)
         return dialogue
 
@@ -50,7 +58,17 @@ class CreateDialogueFromText:
     def __init__(self, repository: DialogueRepository) -> None:
         self._repository = repository
 
-    async def execute(self, text: str) -> Dialogue:
-        dialogue = Dialogue.from_text(text)
+    async def execute(
+        self,
+        text: str,
+        *,
+        patient_ref: str | None = None,
+        encounter_ref: str | None = None,
+    ) -> Dialogue:
+        dialogue = Dialogue.from_text(
+            text,
+            patient_ref=patient_ref,
+            encounter_ref=encounter_ref,
+        )
         await self._repository.save(dialogue)
         return dialogue

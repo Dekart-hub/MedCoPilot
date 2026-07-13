@@ -1,3 +1,3 @@
-from .settings import OpenAISettings, Settings, get_settings
+from .settings import EhrSettings, OpenAISettings, Settings, get_settings
 
-__all__ = ["Settings", "OpenAISettings", "get_settings"]
+__all__ = ["EhrSettings", "Settings", "OpenAISettings", "get_settings"]
