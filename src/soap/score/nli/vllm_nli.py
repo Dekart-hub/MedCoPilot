@@ -112,7 +112,9 @@ class VllmNliScorer:
             "logprobs": 20,
             "allowed_token_ids": [self._yes_id, self._no_id],
         }
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+        # Пустой api_key (локальный vLLM без --api-key) -> не шлём заголовок
+        # вовсе: "Bearer " с пустым значением httpx отвергает как невалидный.
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         url = f"{self._base_url}/v1/completions"
 
         if self._client is not None:
