@@ -15,7 +15,25 @@ from .coding.normalizer import (
     LexicalDiagnosisNormalizer,
     NullDiagnosisNormalizer,
 )
-from .view import AssessmentView, ClaimView, NoteView, ReportView, to_view
+from .context import (
+    ClinicalContextInput,
+    ClinicalContextResource,
+    ContextStatus,
+    ContextSupportResult,
+    EhrContextSupportReport,
+    PreparedClinicalContext,
+    RequestedContextSupport,
+    SoapExtraction,
+    validate_context_support,
+)
+from .view import (
+    AssessmentView,
+    ClaimView,
+    ContextReferenceView,
+    NoteView,
+    ReportView,
+    to_view,
+)
 from .use_cases import ExtractScoredSoap
 
 __all__ = [
@@ -35,8 +53,18 @@ __all__ = [
     "DiagnosisNormalizer",
     "LexicalDiagnosisNormalizer",
     "NullDiagnosisNormalizer",
+    "ClinicalContextInput",
+    "ClinicalContextResource",
+    "ContextStatus",
+    "ContextSupportResult",
+    "EhrContextSupportReport",
+    "PreparedClinicalContext",
+    "RequestedContextSupport",
+    "SoapExtraction",
+    "validate_context_support",
     "AssessmentView",
     "ClaimView",
+    "ContextReferenceView",
     "NoteView",
     "ReportView",
     "to_view",

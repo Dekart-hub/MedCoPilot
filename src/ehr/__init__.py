@@ -24,7 +24,7 @@ from .models import (
     SyncStatus,
 )
 from .repository import InMemoryReportRepository, ReportRepository
-from .use_cases import ReportWorkflow
+from .use_cases import GenerateReport, ReportWorkflow
 
 __all__ = [
     "ApprovalConflictError",
@@ -39,6 +39,7 @@ __all__ = [
     "EhrResourceSummary",
     "EhrSyncResult",
     "FIXTURE_PHASE_SYSTEM",
+    "GenerateReport",
     "InMemoryReportRepository",
     "InvalidEhrReferenceError",
     "POST_VISIT_PHASE",

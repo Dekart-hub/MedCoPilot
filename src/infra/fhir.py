@@ -334,6 +334,7 @@ def _render_report_markdown(record: ReportRecord) -> str:
         f"Dialogue: {record.dialogue_id}",
         f"Patient: {record.patient_ref}",
         f"Encounter: {record.encounter_ref}",
+        f"FHIR context status: {record.report.context_status}",
     ]
     for index, note in enumerate(record.report.notes, 1):
         lines.extend(["", f"## Problem {index}"])
@@ -353,6 +354,11 @@ def _render_report_markdown(record: ReportRecord) -> str:
                     f"> Evidence: {claim.evidence_text}",
                 ]
             )
+            if claim.context_references:
+                references = ", ".join(
+                    reference.reference for reference in claim.context_references
+                )
+                lines.append(f"> FHIR context: {references}")
         if note.assessment.codings:
             lines.extend(["", "ICD candidates:"])
             lines.extend(

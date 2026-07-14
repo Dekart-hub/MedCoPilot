@@ -17,13 +17,14 @@ Implemented:
   note-level `needs_review`
 - ICD-10 candidate coding for the Assessment section (BM25 baseline)
 - External HAPI FHIR R4 mock EHR: explicit patient/encounter linkage,
-  pre-visit context reads, clinician approval, idempotent `DocumentReference` sync
+  bounded A/P context enrichment with separate FHIR provenance, clinician
+  approval, and idempotent `DocumentReference` sync
 - REST API (FastAPI) + Streamlit demo UI + Docker image
 - Offline quality benchmark on ACI-Bench-Refined (LLM-as-judge, see below)
 
-Not yet implemented (planned): production EHR authentication/vendor adapters,
-PII de-identification, in-service Tier 2 clinical rubric (an offline LLM judge
-exists in the benchmark).
+Not yet implemented (planned): production EHR authentication/vendor adapters
+and the in-service Tier 2 clinical rubric (an offline LLM judge exists in the
+benchmark).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design principles.
 
@@ -152,7 +153,9 @@ Response shape (abridged):
       "needs_review": false,
       "confidence": 0.93
     }
-  ]
+  ],
+  "context_status": "not-linked",
+  "context_error": null
 }
 ```
 
@@ -190,6 +193,14 @@ The live test performs both a direct FHIR adapter check and a FastAPI context
 check. It also synchronizes the same stable report twice and verifies HAPI
 returns the same `DocumentReference`. Loading the post-visit bundle first proves
 that the current diagnosis can exist in HAPI without appearing in app context.
+
+Generating a report for a linked dialogue fetches this snapshot before LLM
+extraction and supplies at most ten Conditions, allergies, medications, and
+observations per category to Assessment/Plan. Used resources are returned in
+`context_references`, separately from transcript `evidence_text` and `turn_id`.
+Each reference must exactly match the fetched snapshot. If context retrieval
+fails, the report is still generated from the transcript with
+`context_status=unavailable` and `needs_review=true`.
 
 Reports are stored as drafts in memory. Approve with
 `{"clinician_ref":"Practitioner/mock-gp-001"}` before sync. Sync creates a FHIR

@@ -5,20 +5,23 @@ One job: **transcript in, verifiable SOAP note out.**
 
 ## Core principle — verifiability
 
-A SOAP note is only useful for an EHR if every fact can be traced back to
-what was actually said. Therefore every extracted claim carries a verbatim
-`evidence_quote` and a reference to the dialogue turn it came from. The LLM
-does the hard part (extraction); everything around it is deterministic, so
-failures are caught without model cost.
+A SOAP note is only useful for an EHR if every fact can be traced to its source.
+Every extracted claim retains a verbatim transcript quote and dialogue-turn
+reference. Assessment and Plan may additionally use bounded pre-visit FHIR
+context, but those resources are recorded as separate references and never
+represented as transcript evidence. The LLM does the extraction; deterministic
+gates validate both provenance channels.
 
 ## Pipeline
 
 ```
 transcript
   → Dialogue (speaker-labelled turns)
+  → bounded pre-visit FHIR context when Patient/Encounter linkage is present
   → Planner (LLM): segments the visit into clinical problems
-  → Extractor (LLM, one call per problem): SOAP note with per-claim citations
+  → Extractor (LLM, one call per problem): SOAP note + A/P context references
   → Tier 0 gate (deterministic): citations resolve? sections populated?
+  → FHIR context gate (deterministic): every context reference was in the snapshot?
   → Tier 1 scorer (deterministic): lexical grounding per claim + review flags
   → ICD coding (BM25): candidate ICD-10 codes for the Assessment
   → ReportView: one joined tree per note → REST DTO / demo UI
@@ -51,6 +54,8 @@ the benchmark shows lexical grounding is insufficient.
 - `src/soap/score/` — `tier0.py` (structural gate) and `scorer.py` (lexical
   grounding). Both produce side-car aggregates keyed by note/claim ids; the
   domain write-model is never mutated by evaluation.
+- `src/soap/context.py` — bounded extraction input plus the FHIR-context
+  support side-car and exact-reference gate for Assessment/Plan.
 - `src/soap/coding/` — BM25 retrieval over the Russian ICD-10 (NSI) index,
   candidate codes for the Assessment claim (English ICD-10 migration pending).
 - `src/soap/view.py` — the only place the side-car aggregates are joined into
@@ -77,6 +82,11 @@ Fixture clinical resources are divided by the tag system
 Condition referencing the current Encounter is excluded even if it is tagged
 incorrectly. This keeps the post-visit/gold diagnosis out of application
 context. Every returned item retains its FHIR resource reference as provenance.
+At report generation, at most ten items from each supported category are sent
+to the extractor. Only Assessment and Plan can return `context_references`.
+Unknown references are rejected by an exact snapshot-membership gate and force
+human review. If a linked EHR is disabled or unavailable, generation continues
+from the transcript with `context_status=unavailable` and also forces review.
 
 Report synchronization is a separate state machine:
 
@@ -103,8 +113,9 @@ final `DocumentReference` containing the approved SOAP report as Markdown.
 
 - The EHR adapter is development-only: no SMART-on-FHIR/OAuth, vendor profiles,
   production persistence, audit log, or PII controls are implemented.
-- EHR context is exposed through a bounded API but is not yet injected into the
-  SOAP extractor; dialogue turns remain the only evidence source for claims.
+- Context enrichment supports Conditions, allergies, medications, and
+  observations from the development fixture profile; production profiles and
+  terminology normalization remain future work.
 - Report workflow state is currently in memory and is lost when the app restarts.
 - The planner's segmentation (`turn_indices`) is not yet consumed by the
   extractor — each extractor call currently sees the full dialogue.

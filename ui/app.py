@@ -120,6 +120,7 @@ def render_dialogue(dialogue_id: str) -> None:
 
 def render_report(report: dict) -> None:
     st.subheader("SOAP-репорт")
+    _context_status(report)
     for i, note in enumerate(report.get("soap_notes", []), 1):
         confidence = note.get("confidence")
         title = f"Запись {i}"
@@ -134,6 +135,21 @@ def render_report(report: dict) -> None:
             _section("A — Assessment", note["assessment"])
             _codings(note["assessment"].get("codings", []))
             _section("P — Plan", note["plan"])
+
+
+def _context_status(report: dict) -> None:
+    status = report.get("context_status", "not-linked")
+    if status == "available":
+        st.success("Pre-visit FHIR context was available for Assessment/Plan.")
+    elif status == "unavailable":
+        message = (
+            "FHIR context was unavailable; transcript-only fallback requires review."
+        )
+        if report.get("context_error"):
+            message += f" {report['context_error']}"
+        st.warning(message)
+    else:
+        st.caption("No Patient/Encounter linkage; report used transcript only.")
 
 
 def _tier0_bar(tier0: dict | None) -> None:
@@ -161,6 +177,25 @@ def _section(label: str, claim: dict) -> None:
         details.append("⚠️ review")
     if details:
         st.caption(" · ".join(details))
+    evidence = claim.get("evidence_text")
+    turn_id = claim.get("turn_id")
+    if evidence:
+        st.caption(f"Transcript evidence ({turn_id}): {evidence}")
+    context_references = claim.get("context_references", [])
+    if context_references:
+        st.markdown("FHIR context provenance:")
+        for reference in context_references:
+            summary = (
+                reference.get("display")
+                or reference.get("value")
+                or "clinical fact"
+            )
+            st.caption(f"• {reference['reference']} · {summary}")
+    invalid_references = claim.get("invalid_context_references", [])
+    if invalid_references:
+        st.error(
+            "Unresolved FHIR context references: " + ", ".join(invalid_references)
+        )
 
 
 def _codings(codings: list[dict]) -> None:

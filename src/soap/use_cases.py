@@ -5,6 +5,11 @@ from shared.value_objects import Id
 
 from .coding.coding import SoapCodingReport
 from .coding.normalizer import DiagnosisNormalizer
+from .context import (
+    ContextStatus,
+    PreparedClinicalContext,
+    validate_context_support,
+)
 from .extractor import SoapExtractor
 from .score.score import SoapConfidenceReport, SoapNoteConfidenceScore
 from .score.scorer import ConfidenceScorer
@@ -31,8 +36,16 @@ class ExtractScoredSoap:
         self.scorer = scorer
         self.normalizer = normalizer
 
-    async def execute(self, dialogue: Dialogue) -> ReportView:
-        report = await self.extractor.extract(dialogue)
+    async def execute(
+        self,
+        dialogue: Dialogue,
+        prepared_context: PreparedClinicalContext | None = None,
+    ) -> ReportView:
+        prepared = prepared_context or PreparedClinicalContext(
+            status=ContextStatus.NOT_LINKED
+        )
+        extraction = await self.extractor.extract(dialogue, prepared.context)
+        report = extraction.report
         tier0 = run_tier0(dialogue, report)
         scores, codings = await asyncio.gather(
             self._score_all(dialogue, report),
@@ -48,7 +61,8 @@ class ExtractScoredSoap:
             soap_report_id=report.id,
             codings=codings,
         )
-        return to_view(report, confidence, coding, tier0)
+        context_support = validate_context_support(extraction, prepared)
+        return to_view(report, confidence, coding, tier0, context_support)
 
     async def _score_all(
         self, dialogue: Dialogue, report: SoapReport

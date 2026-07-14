@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dialogue import Dialogue
 from ehr import EhrResourceSummary, PatientContext, ReportRecord
 from soap import ReportView
-from soap.view import AssessmentView, ClaimView, NoteView, Tier0View
+from soap.view import (
+    AssessmentView,
+    ClaimView,
+    ContextReferenceView,
+    NoteView,
+    Tier0View,
+)
 
 # --------------------------------------------------------------------------- #
 # Запросы.
@@ -151,6 +157,8 @@ class ReportWorkflowResponse(BaseModel):
     remote_reference: str | None
     remote_version_id: str | None
     last_error: str | None
+    context_status: str = "not-linked"
+    context_error: str | None = None
 
     @classmethod
     def from_domain(cls, record: ReportRecord) -> ReportWorkflowResponse:
@@ -166,6 +174,34 @@ class ReportWorkflowResponse(BaseModel):
             remote_reference=record.remote_reference,
             remote_version_id=record.remote_version_id,
             last_error=record.last_error,
+            context_status=record.report.context_status,
+            context_error=record.report.context_error,
+        )
+
+
+class ContextReferenceResponse(BaseModel):
+    reference: str
+    resource_type: str
+    category: str
+    display: str | None = None
+    code: str | None = None
+    status: str | None = None
+    effective_at: str | None = None
+    value: str | None = None
+
+    @classmethod
+    def from_view(
+        cls, reference: ContextReferenceView
+    ) -> ContextReferenceResponse:
+        return cls(
+            reference=reference.reference,
+            resource_type=reference.resource_type,
+            category=reference.category,
+            display=reference.display,
+            code=reference.code,
+            status=reference.status,
+            effective_at=reference.effective_at,
+            value=reference.value,
         )
 
 
@@ -176,6 +212,10 @@ class ClaimResponse(BaseModel):
     turn_id: str
     grounding_score: float | None
     is_flagged: bool
+    context_references: list[ContextReferenceResponse] = Field(
+        default_factory=list
+    )
+    invalid_context_references: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_view(cls, claim: ClaimView) -> ClaimResponse:
@@ -186,6 +226,11 @@ class ClaimResponse(BaseModel):
             turn_id=str(claim.turn_id),
             grounding_score=claim.grounding_score,
             is_flagged=claim.is_flagged,
+            context_references=[
+                ContextReferenceResponse.from_view(reference)
+                for reference in claim.context_references
+            ],
+            invalid_context_references=claim.invalid_context_references,
         )
 
 
@@ -213,6 +258,10 @@ class AssessmentResponse(BaseModel):
     codings: list[CodingResponse]
     grounding_score: float | None
     is_flagged: bool
+    context_references: list[ContextReferenceResponse] = Field(
+        default_factory=list
+    )
+    invalid_context_references: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_view(cls, assessment: AssessmentView) -> AssessmentResponse:
@@ -223,6 +272,11 @@ class AssessmentResponse(BaseModel):
             turn_id=str(assessment.turn_id),
             grounding_score=assessment.grounding_score,
             is_flagged=assessment.is_flagged,
+            context_references=[
+                ContextReferenceResponse.from_view(reference)
+                for reference in assessment.context_references
+            ],
+            invalid_context_references=assessment.invalid_context_references,
             codings=[
                 CodingResponse(
                     code=c.code,
@@ -287,6 +341,8 @@ class ReportResponse(BaseModel):
     soap_notes: list[NoteResponse]
     created_at: datetime
     updated_at: datetime
+    context_status: str = "not-linked"
+    context_error: str | None = None
 
     @classmethod
     def from_domain(cls, view: ReportView) -> ReportResponse:
@@ -295,4 +351,6 @@ class ReportResponse(BaseModel):
             soap_notes=[NoteResponse.from_view(note) for note in view.notes],
             created_at=view.created_at,
             updated_at=view.updated_at,
+            context_status=view.context_status,
+            context_error=view.context_error,
         )

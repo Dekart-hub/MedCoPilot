@@ -16,6 +16,11 @@ from datetime import datetime
 from dialogue import DialogueTurnId
 
 from .coding.coding import DiagnosisCoding, SoapCodingReport
+from .context import (
+    ContextStatus,
+    ContextSupportResult,
+    EhrContextSupportReport,
+)
 from .score.score import ClaimConfidenceScore, SoapConfidenceReport
 from .score.tier0 import SoapTier0Report, Tier0NoteResult
 from .soap import SoapClaim, SoapClaimId, SoapNoteId, SoapReport, SoapReportId
@@ -32,6 +37,18 @@ class Tier0View:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextReferenceView:
+    reference: str
+    resource_type: str
+    category: str
+    display: str | None = None
+    code: str | None = None
+    status: str | None = None
+    effective_at: str | None = None
+    value: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ClaimView:
     id: SoapClaimId
     claim: str
@@ -39,6 +56,8 @@ class ClaimView:
     turn_id: DialogueTurnId
     grounding_score: float | None = None
     is_flagged: bool = False
+    context_references: list[ContextReferenceView] = field(default_factory=list)
+    invalid_context_references: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +71,8 @@ class AssessmentView:
     codings: list[DiagnosisCoding] = field(default_factory=list)
     grounding_score: float | None = None
     is_flagged: bool = False
+    context_references: list[ContextReferenceView] = field(default_factory=list)
+    invalid_context_references: list[str] = field(default_factory=list)
 
 
 def _default_tier0_view() -> Tier0View:
@@ -81,6 +102,8 @@ class ReportView:
     notes: list[NoteView]
     created_at: datetime
     updated_at: datetime
+    context_status: ContextStatus = ContextStatus.NOT_LINKED
+    context_error: str | None = None
 
 
 def _grounding(
@@ -98,6 +121,7 @@ def _claim(
     claim: SoapClaim,
     claim_scores: dict[SoapClaimId, ClaimConfidenceScore],
     unresolved: frozenset[SoapClaimId],
+    context_support: ContextSupportResult | None = None,
 ) -> ClaimView:
     score, flagged = _grounding(claim, claim_scores, unresolved)
     return ClaimView(
@@ -107,6 +131,10 @@ def _claim(
         turn_id=claim.evidence.turn_id,
         grounding_score=score,
         is_flagged=flagged,
+        context_references=_context_references(context_support),
+        invalid_context_references=(
+            list(context_support.invalid_references) if context_support else []
+        ),
     )
 
 
@@ -115,6 +143,7 @@ def _assessment(
     codings: list[DiagnosisCoding],
     claim_scores: dict[SoapClaimId, ClaimConfidenceScore],
     unresolved: frozenset[SoapClaimId],
+    context_support: ContextSupportResult | None = None,
 ) -> AssessmentView:
     score, flagged = _grounding(claim, claim_scores, unresolved)
     return AssessmentView(
@@ -125,7 +154,31 @@ def _assessment(
         codings=codings,
         grounding_score=score,
         is_flagged=flagged,
+        context_references=_context_references(context_support),
+        invalid_context_references=(
+            list(context_support.invalid_references) if context_support else []
+        ),
     )
+
+
+def _context_references(
+    support: ContextSupportResult | None,
+) -> list[ContextReferenceView]:
+    if support is None:
+        return []
+    return [
+        ContextReferenceView(
+            reference=resource.reference,
+            resource_type=resource.resource_type,
+            category=resource.category,
+            display=resource.display,
+            code=resource.code,
+            status=resource.status,
+            effective_at=resource.effective_at,
+            value=resource.value,
+        )
+        for resource in support.references
+    ]
 
 
 _TIER0_FALLBACK = _default_tier0_view()
@@ -147,6 +200,7 @@ def to_view(
     confidence: SoapConfidenceReport,
     coding: SoapCodingReport,
     tier0: SoapTier0Report,
+    context_support: EhrContextSupportReport | None = None,
 ) -> ReportView:
     """Joins the four side-car aggregates into one linearized report tree."""
     confidence_by_note = {
@@ -157,6 +211,10 @@ def to_view(
         for note_coding in coding.codings
     }
     tier0_by_note = {result.soap_note_id: result for result in tier0.results}
+    context_by_note_section = {
+        (result.soap_note_id, result.section): result
+        for result in (context_support.results if context_support else [])
+    }
 
     notes: list[NoteView] = []
     for note in report.soap_notes:
@@ -174,12 +232,22 @@ def to_view(
             codings_by_claim.get(note.assessment.id, []),
             claim_scores,
             unresolved,
+            context_by_note_section.get((note.id, "assessment")),
         )
-        plan = _claim(note.plan, claim_scores, unresolved)
+        plan = _claim(
+            note.plan,
+            claim_scores,
+            unresolved,
+            context_by_note_section.get((note.id, "plan")),
+        )
 
         tier0_view = _tier0_view(t0)
         any_flagged = any(
             c.is_flagged for c in (subjective, objective, assessment, plan)
+        )
+        invalid_context = bool(
+            assessment.invalid_context_references
+            or plan.invalid_context_references
         )
         notes.append(
             NoteView(
@@ -193,6 +261,11 @@ def to_view(
                     not tier0_view.passed
                     or bool(tier0_view.empty_sections)
                     or any_flagged
+                    or invalid_context
+                    or (
+                        context_support is not None
+                        and context_support.status is ContextStatus.UNAVAILABLE
+                    )
                 ),
                 confidence=note_score.score.score if note_score else None,
             )
@@ -203,4 +276,8 @@ def to_view(
         notes=notes,
         created_at=report.created_at,
         updated_at=report.updated_at,
+        context_status=(
+            context_support.status if context_support else ContextStatus.NOT_LINKED
+        ),
+        context_error=context_support.error if context_support else None,
     )

@@ -6,10 +6,13 @@ from typing import Any
 
 from dialogue import Dialogue, DialogueTurn
 from shared.value_objects import Id
+from soap.context import ClinicalContextInput, ClinicalContextResource
 from soap.extractor.llm_extractor import (
     ClaimOut,
+    ContextualClaimOut,
     LlmSoapExtractor,
     NoteOut,
+    _render_clinical_context,
 )
 
 
@@ -48,16 +51,31 @@ def _note_out(turn_index: int) -> NoteOut:
     def claim(text: str) -> ClaimOut:
         return ClaimOut(claim=text, evidence_text=text, turn_index=turn_index)
 
+    def contextual(text: str) -> ContextualClaimOut:
+        return ContextualClaimOut(
+            claim=text,
+            evidence_text=text,
+            turn_index=turn_index,
+        )
+
     return NoteOut(
         subjective=claim("sharp headache"),
         objective=claim("bp 130 over 85"),
-        assessment=claim("tension headache"),
-        plan=claim("take ibuprofen"),
+        assessment=contextual("tension headache"),
+        plan=contextual("take ibuprofen"),
     )
 
 
+def _extract_result(
+    agent: StubAgent,
+    dialogue: Dialogue,
+    context: ClinicalContextInput | None = None,
+):
+    return asyncio.run(LlmSoapExtractor(agent).extract(dialogue, context))
+
+
 def _extract(agent: StubAgent, dialogue: Dialogue):
-    return asyncio.run(LlmSoapExtractor(agent).extract(dialogue))
+    return _extract_result(agent, dialogue).report
 
 
 def test_state_notes_become_soap_report():
@@ -105,11 +123,14 @@ def test_evidence_prefix_is_stripped():
     def claim(text: str) -> ClaimOut:
         return ClaimOut(claim="c", evidence_text=text, turn_index=1)
 
+    def contextual(text: str) -> ContextualClaimOut:
+        return ContextualClaimOut(claim="c", evidence_text=text, turn_index=1)
+
     note = NoteOut(
         subjective=claim("[1] person: Болит голова"),
         objective=claim("[2] medic: Давление 135 на 88"),
-        assessment=claim("[3]"),
-        plan=claim("[16], [17]"),
+        assessment=contextual("[3]"),
+        plan=contextual("[16], [17]"),
     )
     agent = StubAgent({"notes": [note]})
 
@@ -154,5 +175,64 @@ def test_agent_receives_flattened_turns():
     assert agent.received_messages["turns"] == [
         {"id": str(turn.id), "role": "patient", "content": "I have a sharp headache"}
     ]
+    assert agent.received_messages["clinical_context"] is None
     assert agent.received_messages["segments"] == []
     assert agent.received_messages["notes"] == []
+
+
+def test_assessment_and_plan_context_refs_are_returned_as_sidecar_requests():
+    turn = _turn("patient", "I have a headache")
+    dialogue = _dialogue(turn)
+    note = _note_out(1)
+    note.assessment.context_refs = ["Condition/history"]
+    note.plan.context_refs = ["MedicationRequest/active"]
+    context = ClinicalContextInput(
+        patient_ref="Patient/p1",
+        encounter_ref="Encounter/e1",
+        resources=(
+            ClinicalContextResource(
+                reference="Condition/history",
+                resource_type="Condition",
+                category="condition",
+                display="Migraine",
+            ),
+        ),
+    )
+    agent = StubAgent({"notes": [note]})
+
+    extraction = _extract_result(agent, dialogue, context)
+
+    assert agent.received_messages["clinical_context"] is context
+    assert [item.section for item in extraction.requested_context] == [
+        "assessment",
+        "plan",
+    ]
+    assert extraction.requested_context[0].references == ["Condition/history"]
+    assert extraction.requested_context[1].references == [
+        "MedicationRequest/active"
+    ]
+    assert extraction.report.soap_notes[0].assessment.evidence.text == (
+        "tension headache"
+    )
+
+
+def test_context_render_uses_exact_refs_without_patient_demographics():
+    context = ClinicalContextInput(
+        patient_ref="Patient/secret",
+        encounter_ref="Encounter/e1",
+        resources=(
+            ClinicalContextResource(
+                reference="AllergyIntolerance/a1",
+                resource_type="AllergyIntolerance",
+                category="allergy",
+                display="Penicillin",
+                status="active",
+            ),
+        ),
+    )
+
+    rendered = _render_clinical_context(context)
+
+    assert "[AllergyIntolerance/a1]" in rendered
+    assert "Penicillin" in rendered
+    assert "Patient/secret" not in rendered

@@ -5,11 +5,19 @@ from datetime import datetime, timezone
 
 from dialogue import Dialogue, DialogueRepository
 from shared.value_objects import Id
-from soap import ReportView
+from soap import (
+    ClinicalContextInput,
+    ClinicalContextResource,
+    ContextStatus,
+    ExtractScoredSoap,
+    PreparedClinicalContext,
+    ReportView,
+)
 
 from .errors import (
     ApprovalConflictError,
     DialogueNotFoundError,
+    EhrError,
     EhrGatewayError,
     InvalidEhrReferenceError,
     ReportNotApprovedError,
@@ -19,6 +27,7 @@ from .errors import (
 from .gateway import EhrGateway
 from .models import (
     ApprovalStatus,
+    EhrResourceSummary,
     EhrSyncResult,
     PatientContext,
     ReportRecord,
@@ -27,6 +36,8 @@ from .models import (
 from .repository import ReportRepository
 
 _CLINICIAN_REF = re.compile(r"^Practitioner/[A-Za-z0-9.-]{1,64}$")
+_MAX_CONTEXT_RESOURCES_PER_CATEGORY = 10
+_MAX_CONTEXT_TEXT_LENGTH = 256
 
 
 class ReportWorkflow:
@@ -78,6 +89,31 @@ class ReportWorkflow:
             encounter_ref=dialogue.encounter_ref,
         )
 
+    async def prepare_clinical_context(
+        self, dialogue: Dialogue
+    ) -> PreparedClinicalContext:
+        if dialogue.patient_ref is None and dialogue.encounter_ref is None:
+            return PreparedClinicalContext(status=ContextStatus.NOT_LINKED)
+        if not dialogue.patient_ref or not dialogue.encounter_ref:
+            return PreparedClinicalContext(
+                status=ContextStatus.UNAVAILABLE,
+                error="Dialogue has incomplete patient/encounter linkage",
+            )
+        try:
+            context = await self._ehr.get_patient_context(
+                patient_ref=dialogue.patient_ref,
+                encounter_ref=dialogue.encounter_ref,
+            )
+        except EhrError as exc:
+            return PreparedClinicalContext(
+                status=ContextStatus.UNAVAILABLE,
+                error=str(exc),
+            )
+        return PreparedClinicalContext(
+            status=ContextStatus.AVAILABLE,
+            context=_to_clinical_context(context),
+        )
+
     async def approve(self, report_id: str, clinician_ref: str) -> ReportRecord:
         if not _CLINICIAN_REF.fullmatch(clinician_ref):
             raise InvalidEhrReferenceError(
@@ -127,3 +163,61 @@ class ReportWorkflow:
         record.remote_version_id = result.version_id
         await self._reports.save(record)
         return record
+
+
+class GenerateReport:
+    def __init__(
+        self,
+        extract_scored_soap: ExtractScoredSoap,
+        workflow: ReportWorkflow,
+    ) -> None:
+        self._extract_scored_soap = extract_scored_soap
+        self._workflow = workflow
+
+    async def execute(self, dialogue: Dialogue) -> ReportView:
+        context = await self._workflow.prepare_clinical_context(dialogue)
+        report = await self._extract_scored_soap.execute(dialogue, context)
+        await self._workflow.store_generated_report(report, dialogue)
+        return report
+
+
+def _to_clinical_context(context: PatientContext) -> ClinicalContextInput:
+    resources: list[ClinicalContextResource] = []
+    categories = (
+        ("condition", context.conditions),
+        ("allergy", context.allergies),
+        ("medication", context.medications),
+        ("observation", context.observations),
+    )
+    for category, summaries in categories:
+        resources.extend(
+            _to_context_resource(category, summary)
+            for summary in summaries[:_MAX_CONTEXT_RESOURCES_PER_CATEGORY]
+        )
+    return ClinicalContextInput(
+        patient_ref=context.patient_ref,
+        encounter_ref=context.encounter_ref,
+        resources=tuple(resources),
+    )
+
+
+def _to_context_resource(
+    category: str,
+    summary: EhrResourceSummary,
+) -> ClinicalContextResource:
+    return ClinicalContextResource(
+        reference=summary.reference,
+        resource_type=summary.resource_type,
+        category=category,
+        display=_bounded_text(summary.code.display if summary.code else None),
+        code=_bounded_text(summary.code.code if summary.code else None),
+        status=_bounded_text(summary.status),
+        effective_at=_bounded_text(summary.effective_at),
+        value=_bounded_text(summary.value),
+    )
+
+
+def _bounded_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value[:_MAX_CONTEXT_TEXT_LENGTH]

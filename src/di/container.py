@@ -15,6 +15,7 @@ from dialogue.samples import build_sample_dialogue
 from ehr import (
     DisabledEhrGateway,
     EhrGateway,
+    GenerateReport,
     InMemoryReportRepository,
     ReportRepository,
     ReportWorkflow,
@@ -52,6 +53,7 @@ class Container:
     create_dialogue: CreateDialogue
     create_dialogue_from_text: CreateDialogueFromText
     extract_scored_soap: ExtractScoredSoap
+    generate_report: GenerateReport
 
 
 async def build_container() -> Container:
@@ -78,6 +80,8 @@ async def build_container() -> Container:
         report_repository,
         ehr_gateway,
     )
+    extract_scored_soap = ExtractScoredSoap(extractor, scorer, normalizer)
+    generate_report = GenerateReport(extract_scored_soap, report_workflow)
 
     return Container(
         settings=settings,
@@ -93,7 +97,8 @@ async def build_container() -> Container:
         report_workflow=report_workflow,
         create_dialogue=CreateDialogue(repository),
         create_dialogue_from_text=CreateDialogueFromText(repository),
-        extract_scored_soap=ExtractScoredSoap(extractor, scorer, normalizer),
+        extract_scored_soap=extract_scored_soap,
+        generate_report=generate_report,
     )
 
 

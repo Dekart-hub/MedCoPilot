@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, Request, status
 
 from dialogue import CreateDialogue, CreateDialogueFromText, DialogueRepository
-from ehr import ReportRepository, ReportWorkflow
+from ehr import GenerateReport, ReportRepository, ReportWorkflow
 from soap import ExtractScoredSoap
 
 from .container import Container
@@ -44,6 +44,12 @@ def get_extract_scored_soap(
     container: Container = Depends(get_container),
 ) -> ExtractScoredSoap:
     return container.extract_scored_soap
+
+
+def get_generate_report(
+    container: Container = Depends(get_container),
+) -> GenerateReport:
+    return container.generate_report
 
 
 def get_report_repository(

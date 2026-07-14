@@ -18,7 +18,8 @@ from ehr import (
 )
 from infra.fhir import FhirR4EhrGateway
 from shared.value_objects import Id
-from soap import ReportView
+from soap import ContextStatus, ReportView
+from soap.view import AssessmentView, ClaimView, ContextReferenceView, NoteView
 
 
 def _tag(phase: str) -> dict:
@@ -133,7 +134,41 @@ def test_sync_uses_conditional_create_and_approved_document_reference():
         )
 
     now = datetime.now(timezone.utc)
-    report = ReportView(id=Id.new(), notes=[], created_at=now, updated_at=now)
+    claim = ClaimView(
+        id=Id.new(),
+        claim="headache",
+        evidence_text="I have a headache",
+        turn_id=Id.new(),
+    )
+    assessment = AssessmentView(
+        id=Id.new(),
+        claim="tension headache with prior migraine history",
+        evidence_text="The pain feels like pressure",
+        turn_id=Id.new(),
+        context_references=[
+            ContextReferenceView(
+                reference="Condition/history",
+                resource_type="Condition",
+                category="condition",
+                display="Migraine",
+            )
+        ],
+    )
+    report = ReportView(
+        id=Id.new(),
+        notes=[
+            NoteView(
+                id=Id.new(),
+                subjective=claim,
+                objective=claim,
+                assessment=assessment,
+                plan=claim,
+            )
+        ],
+        created_at=now,
+        updated_at=now,
+        context_status=ContextStatus.AVAILABLE,
+    )
     record = ReportRecord(
         report_id=str(report.id),
         dialogue_id=str(Id.new()),
@@ -166,6 +201,7 @@ def test_sync_uses_conditional_create_and_approved_document_reference():
     assert body["context"]["encounter"][0]["reference"] == "Encounter/e1"
     assert body["author"][0]["reference"] == "Practitioner/gp1"
     assert body["meta"]["tag"][0]["code"] == POST_VISIT_PHASE
-    assert "MedCoPilot SOAP report" in base64.b64decode(
-        attachment["data"]
-    ).decode("utf-8")
+    markdown = base64.b64decode(attachment["data"]).decode("utf-8")
+    assert "MedCoPilot SOAP report" in markdown
+    assert "FHIR context status: available" in markdown
+    assert "> FHIR context: Condition/history" in markdown

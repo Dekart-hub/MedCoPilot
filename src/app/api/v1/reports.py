@@ -7,6 +7,7 @@ from ehr import (
     ApprovalConflictError,
     EhrGatewayError,
     EhrIntegrationDisabledError,
+    GenerateReport,
     InvalidEhrReferenceError,
     ReportNotApprovedError,
     ReportNotFoundError,
@@ -14,11 +15,10 @@ from ehr import (
     UnlinkedDialogueError,
 )
 from shared.value_objects import Id
-from soap import ExtractScoredSoap
 
 from di import (
     get_dialogue_repository,
-    get_extract_scored_soap,
+    get_generate_report,
     get_report_workflow,
 )
 
@@ -35,9 +35,8 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 @router.post("", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
     body: CreateReportRequest,
-    use_case: ExtractScoredSoap = Depends(get_extract_scored_soap),
+    use_case: GenerateReport = Depends(get_generate_report),
     repository: DialogueRepository = Depends(get_dialogue_repository),
-    workflow: ReportWorkflow = Depends(get_report_workflow),
 ) -> ReportResponse:
     dialogue = await repository.get(Id.from_str(body.dialogue_id))
     if dialogue is None:
@@ -45,7 +44,6 @@ async def create_report(
             status.HTTP_404_NOT_FOUND, detail="Dialogue not found"
         )
     view = await use_case.execute(dialogue)
-    await workflow.store_generated_report(view, dialogue)
     return ReportResponse.from_domain(view)
 
 

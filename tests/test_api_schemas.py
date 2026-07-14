@@ -4,7 +4,15 @@ from datetime import datetime, timezone
 
 from app.api.v1.schemas import ReportResponse
 from shared.value_objects import Id
-from soap.view import AssessmentView, ClaimView, NoteView, ReportView, Tier0View
+from soap import ContextStatus
+from soap.view import (
+    AssessmentView,
+    ClaimView,
+    ContextReferenceView,
+    NoteView,
+    ReportView,
+    Tier0View,
+)
 
 
 def _claim_view(text: str, *, score: float | None, flagged: bool) -> ClaimView:
@@ -31,6 +39,14 @@ def test_report_response_carries_gate_and_flags():
             turn_id=Id.new(),
             grounding_score=0.8,
             is_flagged=False,
+            context_references=[
+                ContextReferenceView(
+                    reference="Condition/history",
+                    resource_type="Condition",
+                    category="condition",
+                    display="Migraine",
+                )
+            ],
         ),
         plan=_claim_view("rest", score=None, flagged=False),
         tier0=Tier0View(
@@ -42,7 +58,13 @@ def test_report_response_carries_gate_and_flags():
         needs_review=True,
         confidence=0.6,
     )
-    view = ReportView(id=Id.new(), notes=[note], created_at=now, updated_at=now)
+    view = ReportView(
+        id=Id.new(),
+        notes=[note],
+        created_at=now,
+        updated_at=now,
+        context_status=ContextStatus.AVAILABLE,
+    )
 
     resp = ReportResponse.from_domain(view)
     body = resp.model_dump()
@@ -58,4 +80,19 @@ def test_report_response_carries_gate_and_flags():
     assert note_body["subjective"]["grounding_score"] == 0.9
     assert note_body["objective"]["is_flagged"] is True
     assert note_body["assessment"]["grounding_score"] == 0.8
+    assert note_body["assessment"]["context_references"] == [
+        {
+            "reference": "Condition/history",
+            "resource_type": "Condition",
+            "category": "condition",
+            "display": "Migraine",
+            "code": None,
+            "status": None,
+            "effective_at": None,
+            "value": None,
+        }
+    ]
+    assert note_body["assessment"]["invalid_context_references"] == []
     assert note_body["plan"]["grounding_score"] is None
+    assert body["context_status"] == "available"
+    assert body["context_error"] is None

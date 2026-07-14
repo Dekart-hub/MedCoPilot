@@ -2,10 +2,14 @@ from abc import ABC, abstractmethod
 
 from dialogue import Dialogue
 
-from ..soap import SoapReport
+from ..context import ClinicalContextInput, SoapExtraction
 
 
 class SoapExtractor(ABC):
     @abstractmethod
-    async def extract(self, dialogue: Dialogue) -> SoapReport:
+    async def extract(
+        self,
+        dialogue: Dialogue,
+        clinical_context: ClinicalContextInput | None = None,
+    ) -> SoapExtraction:
         raise NotImplementedError
