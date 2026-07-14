@@ -1,8 +1,9 @@
 # Compose stack for MedCoPilot.
 #
 # `postgres` backs persistence (T4); `app` waits for it to become healthy and
-# reads its connection string from DATABASE_URL. Later tasks extend this file
-# additively (e.g. a `vllm` service in T7).
+# reads its connection string from DATABASE_URL. `vllm` serves MedGemma 4B over
+# an OpenAI-compatible API (T7) and is guarded by the `gpu` profile, so the
+# default stack stays CPU-only; the app reaches it through VLLM_BASE_URL.
 
 services:
   postgres:
@@ -36,6 +37,11 @@ services:
       - --no-access-log
     environment:
       DATABASE_URL: postgresql+asyncpg://medcopilot:medcopilot@postgres:5432/medcopilot
+      # OpenAI-compatible endpoint of the `vllm` service. The port is the
+      # container port on the compose network, not the host publish mapping.
+      # VLLM_API_KEY (if the server is launched with one) is read from .env.
+      VLLM_BASE_URL: http://vllm:8000/v1
+      MODEL_ID: google/medgemma-4b-it
     ports:
       - "8000:8000"
     env_file:
@@ -55,5 +61,59 @@ services:
       start_period: 10s
       retries: 3
 
+  # MedGemma 4B served by vLLM behind an OpenAI-compatible API (T7), consumed by
+  # the SOAP extractor (T8) and the NLI scorer (#13). The command mirrors
+  # infra.vllm.MEDGEMMA_4B.command_args() — the reusable source of truth. MedGemma
+  # is gated, so an accepted licence plus HF_TOKEN are required, and gemma3 needs
+  # an NVIDIA GPU of compute capability >= 8.0 (Ampere+) for bfloat16. Behind the
+  # `gpu` profile: bring it up explicitly with `docker compose up vllm`.
+  vllm:
+    image: vllm/vllm-openai:v0.25.1
+    profiles:
+      - gpu
+    command:
+      - --model
+      - google/medgemma-4b-it
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "4096"
+      - --max-logprobs
+      - "20"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /root/.cache/huggingface
+    ports:
+      - "8001:8000"
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+    # vLLM's workers exchange tensors over shared memory; the host IPC namespace
+    # avoids the default 64 MB /dev/shm limit that otherwise stalls model load.
+    ipc: host
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)
+      interval: 30s
+      timeout: 5s
+      # First boot downloads the ~8 GB checkpoint, so allow a long grace period.
+      start_period: 600s
+      retries: 10
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+
 volumes:
   postgres-data:
+  vllm-cache:
