@@ -15,6 +15,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import dialogue.orm  # noqa: F401  (side effect: register tables on Base.metadata)
 from config.settings import get_settings
 from infra.db import Base
 
