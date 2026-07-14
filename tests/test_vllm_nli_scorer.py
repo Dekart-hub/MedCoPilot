@@ -11,9 +11,9 @@ from soap.score.nli import VllmNliScorer
 # --- фейки: ни сети, ни реальной модели ----------------------------------- #
 
 
-class _FakeTokenizerOut:
+class _FakeEncoding:
     def __init__(self, ids: list[int]) -> None:
-        self.input_ids = ids
+        self.ids = ids
 
 
 class _FakeTokenizer:
@@ -22,8 +22,8 @@ class _FakeTokenizer:
     _VOCAB = {"yes": 9820, "no": 2201}
     _INV = {9820: "yes", 2201: "no"}
 
-    def __call__(self, word: str, add_special_tokens: bool = True) -> _FakeTokenizerOut:
-        return _FakeTokenizerOut([self._VOCAB[word]])
+    def encode(self, word: str, add_special_tokens: bool = True) -> _FakeEncoding:
+        return _FakeEncoding([self._VOCAB[word]])
 
     def decode(self, ids: list[int]) -> str:
         return self._INV[ids[0]]
@@ -48,20 +48,22 @@ class _FakeClient:
             "choices": [{"logprobs": {"top_logprobs": [top_logprobs]}}]
         }
         self.last_json: dict | None = None
+        self.last_headers: dict | None = None
 
     async def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
         self.last_json = json
+        self.last_headers = headers
         return _FakeResponse(self._payload)
 
 
-def _scorer(client: _FakeClient) -> VllmNliScorer:
+def _scorer(client: _FakeClient, *, api_key: str = "sk-test") -> VllmNliScorer:
     return VllmNliScorer(
         prompt="judge: ",
         prompt_suffix="\nAnswer:",
         model_id="medgemma",
         tokenizer_id="unused-in-tests",
         vllm_base_url="http://vllm:8000",
-        api_key="sk-test",
+        api_key=api_key,
         client=client,
         tokenizer=_FakeTokenizer(),
     )
@@ -101,6 +103,12 @@ def test_missing_no_token_treated_as_zero_probability():
     assert score == pytest.approx(1.0)
 
 
+def test_softmax_is_stable_for_very_small_logprobs():
+    client = _FakeClient({"yes": -10_000.0, "no": -10_001.0})
+    score = _run(_scorer(client).calc_nli_score("c", "r"))
+    assert score == pytest.approx(1 / (1 + math.exp(-1)))
+
+
 def test_both_tokens_missing_raises():
     client = _FakeClient({"maybe": math.log(0.5)})
     with pytest.raises(ValueError):
@@ -117,3 +125,27 @@ def test_request_restricts_generation_to_yes_no_ids():
     # Пара reference/inference реально попала в промпт.
     assert "reference text" in client.last_json["prompt"]
     assert "claim text" in client.last_json["prompt"]
+
+
+def test_empty_api_key_omits_authorization_header():
+    client = _FakeClient({"yes": math.log(0.6), "no": math.log(0.4)})
+    _run(_scorer(client, api_key="").calc_nli_score("c", "r"))
+    assert client.last_headers == {}
+
+
+def test_answer_must_be_one_token():
+    class SplitTokenizer(_FakeTokenizer):
+        def encode(self, word: str, add_special_tokens: bool = True) -> _FakeEncoding:
+            return _FakeEncoding([1, 2])
+
+    with pytest.raises(ValueError, match="exactly one token"):
+        VllmNliScorer(
+            prompt="",
+            prompt_suffix="",
+            model_id="medgemma",
+            tokenizer_id="unused-in-tests",
+            vllm_base_url="http://vllm:8000",
+            api_key="",
+            client=_FakeClient({}),
+            tokenizer=SplitTokenizer(),
+        )

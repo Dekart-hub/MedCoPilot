@@ -1,7 +1,7 @@
 """Ручной smoke-тест VllmNliScorer против живого vLLM-эндпоинта.
 
 Не входит в pytest: требует поднятого vLLM с моделью и доступа по сети.
-Гоняет golden-набор data/golden/nli_pairs_en.jsonl через calc_nli_score и
+Гоняет golden-набор src/soap/score/nli/golden_en.jsonl через calc_nli_score и
 печатает score по каждой паре + грубую проверку ожидания (high/low).
 
 Настройки через env:
@@ -11,7 +11,7 @@
     NLI_TOKENIZER_ID обычно то же, что NLI_MODEL_ID
 
 Запуск (внутри Colab/Kaggle рядом с поднятым vLLM):
-    PYTHONPATH=src python scripts/smoke_vllm_nli.py
+    PYTHONPATH=src uv run --extra nli python scripts/smoke_vllm_nli.py
 """
 
 from __future__ import annotations

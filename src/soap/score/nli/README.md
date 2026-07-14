@@ -5,7 +5,15 @@ Low-level движок оценки уверенности (FR-4): даёт `P(e
 токенов `yes`/`no` на одной позиции ответа, без генерации текста.
 
 Модель обслуживается **отдельным сервисом vLLM** (OpenAI-совместимый HTTP API),
-поэтому в наш контейнер torch не тянется — только `tokenizers` локально.
+поэтому в наш контейнер torch не тянется. Для ручного клиента нужен только
+опциональный extra `nli` с Rust-пакетом `tokenizers`:
+
+```bash
+uv sync --extra nli
+```
+
+Для gated-модели MedGemma сначала примите условия доступа на Hugging Face и
+настройте `hf auth login` либо `HF_TOKEN`; токен не хранится в репозитории.
 
 ## Требования к железу (важно!)
 
@@ -45,6 +53,7 @@ float32 — `out of resource: shared memory, Required: 81920, Hardware limit:
 diabetes» vs «has diabetes»), где score вышел пограничным (~0.53), а не
 уверенно неверным. Это мотивирует эскалацию на LLM при score в зоне ~0.3–0.7.
 Качество именно на MedGemma замеряется отдельно, когда будет bf16-эндпоинт.
+До этого live-пункт Definition of Done issue #13 остаётся незавершённым.
 
 Проверка, что эндпоинт жив и умеет отдавать logprobs:
 
@@ -60,7 +69,7 @@ curl "$VLLM_BASE_URL/v1/completions" \
 | Переменная | Смысл |
 |---|---|
 | `VLLM_BASE_URL` | адрес vLLM, напр. `http://vllm:8000` |
-| `VLLM_API_KEY` | ключ, переданный в `vllm serve --api-key` |
+| `VLLM_API_KEY` | необязательный ключ, переданный в `vllm serve --api-key` |
 | `NLI_MODEL_ID` | id модели для запросов, напр. `google/medgemma-4b-it` |
 | `NLI_TOKENIZER_ID` | что грузить локально для id токенов yes/no |
 
@@ -68,7 +77,7 @@ curl "$VLLM_BASE_URL/v1/completions" \
 
 1. Готового vLLM-эндпоинта нет — конфиг выше **предложение**; финальный образ
    MedGemma и хост согласовать.
-2. `calc_nli_score` сделан `async` (сетевой вызов + параллельность claim'ов
-   через `asyncio.gather`), хотя в контракте сигнатура синхронная — подтвердить.
+2. `calc_nli_score` сделан `async`, потому что текущий `ConfidenceScorer` и
+   все сетевые адаптеры проекта асинхронны.
 3. Разметка пары (`<Reference>/<Claim>`) и текст `prompt`/`prompt_suffix` —
    черновые, подбираются под MedGemma по golden-набору `golden_en.jsonl` (рядом).

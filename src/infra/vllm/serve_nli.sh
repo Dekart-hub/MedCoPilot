@@ -24,7 +24,7 @@
 #   NLI_MODEL_ID        модель на HF (gated MedGemma -> нужен HF-логин + лицензия)
 #   VLLM_DTYPE          float16 | bfloat16 | float32 (под железо и модель)
 #   VLLM_HOST/PORT      адрес сервиса
-#   VLLM_API_KEY        ключ; клиент шлёт его в Authorization: Bearer <key>
+#   VLLM_API_KEY        необязательный ключ для Authorization: Bearer <key>
 #   VLLM_MAX_MODEL_LEN  длина контекста
 set -euo pipefail
 
@@ -34,10 +34,16 @@ HOST="${VLLM_HOST:-0.0.0.0}"
 PORT="${VLLM_PORT:-8000}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-4096}"
 
-exec vllm serve "${MODEL_ID}" \
-    --host "${HOST}" \
-    --port "${PORT}" \
-    --api-key "${VLLM_API_KEY:?set VLLM_API_KEY}" \
-    --dtype "${DTYPE}" \
-    --max-model-len "${MAX_MODEL_LEN}" \
+VLLM_ARGS=(
+    serve "${MODEL_ID}"
+    --host "${HOST}"
+    --port "${PORT}"
+    --dtype "${DTYPE}"
+    --max-model-len "${MAX_MODEL_LEN}"
     --max-logprobs 20
+)
+if [[ -n "${VLLM_API_KEY:-}" ]]; then
+    VLLM_ARGS+=(--api-key "${VLLM_API_KEY}")
+fi
+
+exec vllm "${VLLM_ARGS[@]}"

@@ -39,7 +39,7 @@ class VllmNliScorer:
     из тяжёлого — только токенизатор (и то ленивый, в тестах подменяется).
 
     ``client``/``tokenizer`` можно передать напрямую (для тестов — фейками),
-    тогда ни ``httpx`` наружу, ни ``transformers`` не задействуются.
+    тогда ни ``httpx`` наружу, ни Hugging Face Hub не задействуются.
     """
 
     def __init__(
@@ -64,11 +64,9 @@ class VllmNliScorer:
         self._client = client
 
         if tokenizer is None:
-            # Ленивый импорт: transformers нужен только для реального запуска,
-            # torch он при этом не тянет (используем лишь токенизатор).
-            from transformers import AutoTokenizer
+            from tokenizers import Tokenizer
 
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+            tokenizer = Tokenizer.from_pretrained(tokenizer_id)
 
         # id токенов ответа и их канонические строковые формы: id — для
         # ограничения генерации на стороне vLLM (allowed_token_ids), строки —
@@ -80,7 +78,12 @@ class VllmNliScorer:
 
     @staticmethod
     def _first_token_id(tokenizer: Any, word: str) -> int:
-        return tokenizer(word, add_special_tokens=False).input_ids[0]
+        token_ids = tokenizer.encode(word, add_special_tokens=False).ids
+        if len(token_ids) != 1:
+            raise ValueError(
+                f"Answer {word!r} must map to exactly one token, got {token_ids}"
+            )
+        return token_ids[0]
 
     async def calc_nli_score(self, inference: str, reference: str) -> float:
         """Вероятность, что ``inference`` следует из ``reference`` (в [0, 1]).
@@ -148,11 +151,22 @@ class VllmNliScorer:
             raise ValueError(
                 "Ни 'yes', ни 'no' нет в top_logprobs — проверь модель/промпт"
             )
-        # Отсутствующий токен трактуем как -inf (exp -> 0): если модель уверенно
-        # сказала yes, no могло не попасть в топ, и наоборот.
-        yes_p = math.exp(yes_lp) if yes_lp is not None else 0.0
-        no_p = math.exp(no_lp) if no_lp is not None else 0.0
-        return yes_p / (yes_p + no_p)
+        if yes_lp is None:
+            return 0.0
+        if no_lp is None:
+            return 1.0
+        if math.isnan(yes_lp) or math.isnan(no_lp):
+            raise ValueError("vLLM returned NaN for a yes/no log probability")
+        if yes_lp == no_lp == -math.inf:
+            raise ValueError("vLLM returned -inf for both yes and no")
+        if yes_lp == -math.inf:
+            return 0.0
+        if no_lp == -math.inf:
+            return 1.0
+        if yes_lp >= no_lp:
+            return 1.0 / (1.0 + math.exp(no_lp - yes_lp))
+        ratio = math.exp(yes_lp - no_lp)
+        return ratio / (1.0 + ratio)
 
     @staticmethod
     def _lookup(top_logprobs: dict[str, float], token: str) -> float | None:

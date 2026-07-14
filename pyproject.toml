@@ -19,6 +19,9 @@ dependencies = [
 bench = [
     "pyarrow>=18.0.0",
 ]
+nli = [
+    "tokenizers>=0.22.2",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
