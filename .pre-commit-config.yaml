@@ -20,6 +20,7 @@ repos:
         pass_filenames: false
         additional_dependencies:
           - fastapi>=0.115
+          - openai>=2.0
           - pydantic>=2.10
           - pydantic-settings>=2.7
           - structlog>=25.1
