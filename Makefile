@@ -1,9 +1,12 @@
 .DEFAULT_GOAL := check
 
-.PHONY: install lint format typecheck test check
+.PHONY: install run lint format typecheck test check
 
 install: ## Sync the uv-managed virtual environment
 	uv sync
+
+run: ## Run the FastAPI app with uvicorn
+	PYTHONPATH=src uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 lint: ## Run ruff lint checks
 	uv run ruff check src tests
