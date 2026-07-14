@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from dialogue import Dialogue
+from ehr import EhrResourceSummary, PatientContext, ReportRecord
 from soap import ReportView
 from soap.view import AssessmentView, ClaimView, NoteView, Tier0View
 
@@ -20,14 +21,22 @@ class TurnRequest(BaseModel):
 
 class CreateDialogueRequest(BaseModel):
     turns: list[TurnRequest]
+    patient_ref: str | None = None
+    encounter_ref: str | None = None
 
 
 class CreateDialogueFromTextRequest(BaseModel):
     text: str
+    patient_ref: str | None = None
+    encounter_ref: str | None = None
 
 
 class CreateReportRequest(BaseModel):
     dialogue_id: str
+
+
+class ApproveReportRequest(BaseModel):
+    clinician_ref: str
 
 
 # --------------------------------------------------------------------------- #
@@ -46,6 +55,8 @@ class DialogueResponse(BaseModel):
     id: str
     turns: list[TurnResponse]
     created_at: datetime
+    patient_ref: str | None
+    encounter_ref: str | None
 
     @classmethod
     def from_domain(cls, dialogue: Dialogue) -> DialogueResponse:
@@ -61,6 +72,100 @@ class DialogueResponse(BaseModel):
                 for turn in dialogue.turns
             ],
             created_at=dialogue.created_at,
+            patient_ref=dialogue.patient_ref,
+            encounter_ref=dialogue.encounter_ref,
+        )
+
+
+class EhrCodingResponse(BaseModel):
+    system: str | None
+    code: str | None
+    display: str | None
+
+
+class EhrResourceResponse(BaseModel):
+    reference: str
+    resource_type: str
+    code: EhrCodingResponse | None
+    status: str | None
+    effective_at: str | None
+    value: str | None
+
+    @classmethod
+    def from_domain(cls, resource: EhrResourceSummary) -> EhrResourceResponse:
+        return cls(
+            reference=resource.reference,
+            resource_type=resource.resource_type,
+            code=(
+                EhrCodingResponse(
+                    system=resource.code.system,
+                    code=resource.code.code,
+                    display=resource.code.display,
+                )
+                if resource.code
+                else None
+            ),
+            status=resource.status,
+            effective_at=resource.effective_at,
+            value=resource.value,
+        )
+
+
+class PatientContextResponse(BaseModel):
+    patient_ref: str
+    encounter_ref: str
+    encounter_start: str | None
+    patient_name: str | None
+    birth_date: str | None
+    gender: str | None
+    conditions: list[EhrResourceResponse]
+    allergies: list[EhrResourceResponse]
+    medications: list[EhrResourceResponse]
+    observations: list[EhrResourceResponse]
+
+    @classmethod
+    def from_domain(cls, context: PatientContext) -> PatientContextResponse:
+        return cls(
+            patient_ref=context.patient_ref,
+            encounter_ref=context.encounter_ref,
+            encounter_start=context.encounter_start,
+            patient_name=context.patient_name,
+            birth_date=context.birth_date,
+            gender=context.gender,
+            conditions=[EhrResourceResponse.from_domain(r) for r in context.conditions],
+            allergies=[EhrResourceResponse.from_domain(r) for r in context.allergies],
+            medications=[EhrResourceResponse.from_domain(r) for r in context.medications],
+            observations=[EhrResourceResponse.from_domain(r) for r in context.observations],
+        )
+
+
+class ReportWorkflowResponse(BaseModel):
+    report_id: str
+    dialogue_id: str
+    patient_ref: str | None
+    encounter_ref: str | None
+    approval_status: str
+    approved_by: str | None
+    approved_at: datetime | None
+    sync_status: str
+    remote_reference: str | None
+    remote_version_id: str | None
+    last_error: str | None
+
+    @classmethod
+    def from_domain(cls, record: ReportRecord) -> ReportWorkflowResponse:
+        return cls(
+            report_id=record.report_id,
+            dialogue_id=record.dialogue_id,
+            patient_ref=record.patient_ref,
+            encounter_ref=record.encounter_ref,
+            approval_status=record.approval_status,
+            approved_by=record.approved_by,
+            approved_at=record.approved_at,
+            sync_status=record.sync_status,
+            remote_reference=record.remote_reference,
+            remote_version_id=record.remote_version_id,
+            last_error=record.last_error,
         )
 
 

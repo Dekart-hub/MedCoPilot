@@ -132,4 +132,10 @@ def build_sample_dialogue() -> Dialogue:
         )
         for turn_id, role, content in _SAMPLE_TURNS
     ]
-    return Dialogue(id=SAMPLE_DIALOGUE_ID, turns=turns, created_at=created)
+    return Dialogue(
+        id=SAMPLE_DIALOGUE_ID,
+        turns=turns,
+        created_at=created,
+        patient_ref="Patient/mock-patient-001",
+        encounter_ref="Encounter/mock-encounter-001",
+    )
