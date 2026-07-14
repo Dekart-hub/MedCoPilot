@@ -1,0 +1,10 @@
+{"reference": "Patient reports severe chest pain radiating to the left arm since this morning.", "inference": "The patient has chest pain.", "expect": "high"}
+{"reference": "Patient denies any chest pain or shortness of breath.", "inference": "The patient has chest pain.", "expect": "low"}
+{"reference": "Blood pressure measured at 150 over 95, elevated.", "inference": "The patient is hypertensive.", "expect": "high"}
+{"reference": "Temperature is 36.8, within normal range.", "inference": "The patient has a fever.", "expect": "low"}
+{"reference": "Complains of a dry cough persisting for two weeks.", "inference": "The patient has had a cough for about two weeks.", "expect": "high"}
+{"reference": "No history of diabetes or cardiovascular disease.", "inference": "The patient has type 2 diabetes.", "expect": "low"}
+{"reference": "Prescribed ibuprofen 400mg twice daily and advised rest.", "inference": "The plan includes ibuprofen and rest.", "expect": "high"}
+{"reference": "Pain is localized to the right knee, worse when walking.", "inference": "The patient has left knee pain.", "expect": "low"}
+{"reference": "Reports nausea but no vomiting over the past day.", "inference": "The patient feels nauseous.", "expect": "high"}
+{"reference": "Sleeps well, no reported stress or anxiety.", "inference": "The patient suffers from insomnia.", "expect": "low"}
