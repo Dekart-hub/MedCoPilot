@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from config.settings import get_settings
+from config.settings import Settings
 
 
 def _fresh_settings(monkeypatch, **env: str):
+    for key in (
+        "SCORING__REVIEW_THRESHOLD",
+        "EHR__ENABLED",
+        "EHR__BASE_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("OPENAI__API_KEY", "sk-test")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    get_settings.cache_clear()
-    try:
-        return get_settings()
-    finally:
-        get_settings.cache_clear()
+    return Settings(_env_file=None)
 
 
 def test_review_threshold_defaults_to_0_6(monkeypatch):

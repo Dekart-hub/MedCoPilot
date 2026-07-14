@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from langchain_core.language_models import BaseChatModel
 
-from config import Settings, get_settings
+from config import EhrSettings, Settings, get_settings
 from dialogue import (
     CreateDialogue,
     CreateDialogueFromText,
@@ -72,11 +72,7 @@ async def build_container() -> Container:
         initial=[build_sample_dialogue()]
     )
     report_repository: ReportRepository = InMemoryReportRepository()
-    ehr_gateway: EhrGateway = (
-        FhirR4EhrGateway(settings.ehr)
-        if settings.ehr.enabled
-        else DisabledEhrGateway()
-    )
+    ehr_gateway = _build_ehr_gateway(settings.ehr)
     report_workflow = ReportWorkflow(
         repository,
         report_repository,
@@ -99,6 +95,12 @@ async def build_container() -> Container:
         create_dialogue_from_text=CreateDialogueFromText(repository),
         extract_scored_soap=ExtractScoredSoap(extractor, scorer, normalizer),
     )
+
+
+def _build_ehr_gateway(settings: EhrSettings) -> EhrGateway:
+    if settings.enabled:
+        return FhirR4EhrGateway(settings)
+    return DisabledEhrGateway()
 
 
 async def teardown_container(container: Container) -> None:
