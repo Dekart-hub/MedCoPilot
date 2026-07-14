@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from langchain_core.language_models import BaseChatModel
 
-from config import Settings, get_settings
+from config import EhrSettings, Settings, get_settings
 from dialogue import (
     CreateDialogue,
     CreateDialogueFromText,
@@ -12,7 +12,15 @@ from dialogue import (
     InMemoryDialogueRepository,
 )
 from dialogue.samples import build_sample_dialogue
+from ehr import (
+    DisabledEhrGateway,
+    EhrGateway,
+    InMemoryReportRepository,
+    ReportRepository,
+    ReportWorkflow,
+)
 from infra import build_chat_model
+from infra.fhir import FhirR4EhrGateway
 from shared.langgraph import LangGraphAgent
 from shared.prompts import InMemoryPromptStore, PromptStore
 from soap import (
@@ -38,6 +46,9 @@ class Container:
     scorer: ConfidenceScorer
     normalizer: DiagnosisNormalizer
     dialogue_repository: DialogueRepository
+    report_repository: ReportRepository
+    ehr_gateway: EhrGateway
+    report_workflow: ReportWorkflow
     create_dialogue: CreateDialogue
     create_dialogue_from_text: CreateDialogueFromText
     extract_scored_soap: ExtractScoredSoap
@@ -60,6 +71,13 @@ async def build_container() -> Container:
     repository: DialogueRepository = InMemoryDialogueRepository(
         initial=[build_sample_dialogue()]
     )
+    report_repository: ReportRepository = InMemoryReportRepository()
+    ehr_gateway = _build_ehr_gateway(settings.ehr)
+    report_workflow = ReportWorkflow(
+        repository,
+        report_repository,
+        ehr_gateway,
+    )
 
     return Container(
         settings=settings,
@@ -70,15 +88,24 @@ async def build_container() -> Container:
         scorer=scorer,
         normalizer=normalizer,
         dialogue_repository=repository,
+        report_repository=report_repository,
+        ehr_gateway=ehr_gateway,
+        report_workflow=report_workflow,
         create_dialogue=CreateDialogue(repository),
         create_dialogue_from_text=CreateDialogueFromText(repository),
         extract_scored_soap=ExtractScoredSoap(extractor, scorer, normalizer),
     )
 
 
+def _build_ehr_gateway(settings: EhrSettings) -> EhrGateway:
+    if settings.enabled:
+        return FhirR4EhrGateway(settings)
+    return DisabledEhrGateway()
+
+
 async def teardown_container(container: Container) -> None:
     """Освобождает ресурсы. Вызывается при остановке приложения.
 
-    Пока закрывать нечего — точка расширения для http-клиентов, пулов БД и т.п.
+    Closes the external mock-EHR HTTP client when it is enabled.
     """
-    return None
+    await container.ehr_gateway.aclose()

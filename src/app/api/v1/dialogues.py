@@ -50,7 +50,9 @@ async def create_dialogue(
     use_case: CreateDialogue = Depends(get_create_dialogue),
 ) -> DialogueResponse:
     command = CreateDialogueCommand(
-        turns=[DialogueTurnInput(role=t.role, content=t.content) for t in body.turns]
+        turns=[DialogueTurnInput(role=t.role, content=t.content) for t in body.turns],
+        patient_ref=body.patient_ref,
+        encounter_ref=body.encounter_ref,
     )
     dialogue = await use_case.execute(command)
     return DialogueResponse.from_domain(dialogue)
@@ -65,5 +67,9 @@ async def create_dialogue_from_text(
     body: CreateDialogueFromTextRequest,
     use_case: CreateDialogueFromText = Depends(get_create_dialogue_from_text),
 ) -> DialogueResponse:
-    dialogue = await use_case.execute(body.text)
+    dialogue = await use_case.execute(
+        body.text,
+        patient_ref=body.patient_ref,
+        encounter_ref=body.encounter_ref,
+    )
     return DialogueResponse.from_domain(dialogue)

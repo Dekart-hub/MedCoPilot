@@ -54,6 +54,15 @@ class AssessmentView:
     is_flagged: bool = False
 
 
+def _default_tier0_view() -> Tier0View:
+    return Tier0View(
+        passed=True,
+        empty_sections=[],
+        citations_total=0,
+        citations_resolved=0,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class NoteView:
     id: SoapNoteId
@@ -61,8 +70,8 @@ class NoteView:
     objective: ClaimView
     assessment: AssessmentView
     plan: ClaimView
-    tier0: Tier0View
-    needs_review: bool
+    tier0: Tier0View = field(default_factory=_default_tier0_view)
+    needs_review: bool = False
     confidence: float | None = None
 
 
@@ -119,9 +128,7 @@ def _assessment(
     )
 
 
-_TIER0_FALLBACK = Tier0View(
-    passed=True, empty_sections=[], citations_total=0, citations_resolved=0
-)
+_TIER0_FALLBACK = _default_tier0_view()
 
 
 def _tier0_view(result: Tier0NoteResult | None) -> Tier0View:

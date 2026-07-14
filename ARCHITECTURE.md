@@ -22,6 +22,7 @@ transcript
   → Tier 1 scorer (deterministic): lexical grounding per claim + review flags
   → ICD coding (BM25): candidate ICD-10 codes for the Assessment
   → ReportView: one joined tree per note → REST DTO / demo UI
+  → clinician approval → conditional FHIR DocumentReference create
 ```
 
 One dialogue may yield **multiple notes** (one per clinical problem) — a
@@ -56,19 +57,55 @@ the benchmark shows lexical grounding is insufficient.
   one linearized read-model consumed by the API and the UI.
 - `src/bench/` — offline benchmark: dataset adapter, LLM judge, resumable
   runner, report + spot-check artifacts.
+- `src/ehr/` — mock-EHR application boundary: report workflow state,
+  clinician approval, patient-context DTOs, repository and gateway contracts.
+- `src/infra/fhir.py` — FHIR R4 adapter for the external HAPI service. It reads
+  bounded pre-visit context and maps approved reports to `DocumentReference`.
 - `src/app/`, `src/di/`, `src/config/` — FastAPI app, dependency container,
   env-driven settings. The LLM client is pluggable (any OpenAI-compatible
   endpoint) so a local model can replace the cloud API.
+
+## Mock EHR boundary
+
+The mock EHR is a separate HAPI FHIR R4 process; it is never embedded into the
+application. A Dialogue may carry explicit `Patient/{id}` and `Encounter/{id}`
+references. The context read verifies that the Encounter belongs to the Patient
+before searching Conditions, allergies, medications, and observations.
+
+Fixture clinical resources are divided by the tag system
+`urn:medcopilot:fixture-phase`. Only `pre-visit` resources are returned, and a
+Condition referencing the current Encounter is excluded even if it is tagged
+incorrectly. This keeps the post-visit/gold diagnosis out of application
+context. Every returned item retains its FHIR resource reference as provenance.
+
+Report synchronization is a separate state machine:
+
+```text
+generated draft → clinician-approved → syncing → synced | failed
+```
+
+Only approved, linked reports can be synchronized. Local state prevents a
+second write after success; the remote request also uses the report id as a
+stable identifier plus FHIR `If-None-Exist`. The synchronized artifact is one
+final `DocumentReference` containing the approved SOAP report as Markdown.
 
 ## Data
 
 - **ACI-Bench-Refined** (evaluation only, AGPL — downloaded by script, never
   committed). No model is trained or fine-tuned; the tier stack is designed
   to need zero training data.
+- **Mock EHR fixtures** — one project-owned deterministic smoke case split into
+  pre-visit and post-visit transaction bundles. The manifest explicitly maps
+  case → Dialogue → Encounter → Patient → Condition. Dataset adapters for
+  PriMock57 and Synthea remain future work.
 
 ## Known limitations
 
-- FHIR sync to a mock EHR and PII de-identification are not implemented yet.
+- The EHR adapter is development-only: no SMART-on-FHIR/OAuth, vendor profiles,
+  production persistence, audit log, or PII controls are implemented.
+- EHR context is exposed through a bounded API but is not yet injected into the
+  SOAP extractor; dialogue turns remain the only evidence source for claims.
+- Report workflow state is currently in memory and is lost when the app restarts.
 - The planner's segmentation (`turn_indices`) is not yet consumed by the
   extractor — each extractor call currently sees the full dialogue.
 - Tier 2 runs offline only; the service returns Tier 0/1 signals.

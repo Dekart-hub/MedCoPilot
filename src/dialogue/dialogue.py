@@ -23,9 +23,17 @@ class Dialogue(Entity[DialogueId]):
     id: DialogueId
     turns: list[DialogueTurn]
     created_at: datetime
+    patient_ref: str | None = None
+    encounter_ref: str | None = None
 
     @classmethod
-    def from_text(cls, text: str) -> Dialogue:
+    def from_text(
+        cls,
+        text: str,
+        *,
+        patient_ref: str | None = None,
+        encounter_ref: str | None = None,
+    ) -> Dialogue:
         """Собирает диалог из «сырого» текста: одна строка — одна реплика.
 
         Метка участника — первое слово строки (например, ``person`` / ``medic``),
@@ -48,4 +56,10 @@ class Dialogue(Entity[DialogueId]):
                     timestamp=now,
                 )
             )
-        return cls(id=Id.new(), turns=turns, created_at=now)
+        return cls(
+            id=Id.new(),
+            turns=turns,
+            created_at=now,
+            patient_ref=patient_ref,
+            encounter_ref=encounter_ref,
+        )
