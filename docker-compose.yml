@@ -1,10 +1,27 @@
-# Compose skeleton for MedCoPilot.
+# Compose stack for MedCoPilot.
 #
-# Only the application service lives here today. Later tasks extend this file
-# additively: a `postgres` service (T4) and a `vllm` service (T7), wired to
-# `app` via `depends_on` and the settings env vars.
+# `postgres` backs persistence (T4); `app` waits for it to become healthy and
+# reads its connection string from DATABASE_URL. Later tasks extend this file
+# additively (e.g. a `vllm` service in T7).
 
 services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: medcopilot
+      POSTGRES_PASSWORD: medcopilot
+      POSTGRES_DB: medcopilot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U medcopilot -d medcopilot
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+
   app:
     build: .
     # Silence uvicorn's default access log: the app's request middleware emits a
@@ -17,11 +34,16 @@ services:
       - --port
       - "8000"
       - --no-access-log
+    environment:
+      DATABASE_URL: postgresql+asyncpg://medcopilot:medcopilot@postgres:5432/medcopilot
     ports:
       - "8000:8000"
     env_file:
       - path: .env
         required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -32,3 +54,6 @@ services:
       timeout: 3s
       start_period: 10s
       retries: 3
+
+volumes:
+  postgres-data:

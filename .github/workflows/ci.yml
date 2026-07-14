@@ -9,6 +9,22 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: medcopilot
+          POSTGRES_PASSWORD: medcopilot
+          POSTGRES_DB: medcopilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medcopilot -d medcopilot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://medcopilot:medcopilot@localhost:5432/medcopilot
     steps:
       - uses: actions/checkout@v5
 

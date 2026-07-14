@@ -14,6 +14,8 @@ FROM python:3.12-slim-bookworm
 WORKDIR /app
 COPY --from=builder /app/.venv ./.venv
 COPY src ./src
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app/src \
