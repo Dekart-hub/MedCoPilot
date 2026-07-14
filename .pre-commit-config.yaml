@@ -18,3 +18,7 @@ repos:
     hooks:
       - id: mypy
         pass_filenames: false
+        additional_dependencies:
+          - fastapi>=0.115
+          - pydantic>=2.10
+          - pydantic-settings>=2.7
