@@ -45,15 +45,24 @@ float32 — `out of resource: shared memory, Required: 81920, Hardware limit:
 
 ## Статус валидации
 
-Движок (`calc_nli_score`) проверен на живом vLLM на **`Qwen/Qwen3-Reranker-0.6B`**
-(T4, fp16 — Qwen не gemma3, потому и заводится): весь путь
-`HTTP → allowed_token_ids → logprobs → softmax` работает, форма ответа
-подтвердилась. На golden-наборе `golden_en.jsonl` с родным промптом Qwen —
-**9/10**; единственный промах — кейс с явным отрицанием («no history of
-diabetes» vs «has diabetes»), где score вышел пограничным (~0.53), а не
-уверенно неверным. Это мотивирует эскалацию на LLM при score в зоне ~0.3–0.7.
-Качество именно на MedGemma замеряется отдельно, когда будет bf16-эндпоинт.
-До этого live-пункт Definition of Done issue #13 остаётся незавершённым.
+**MedGemma (целевая модель) — проверено на живом bf16-эндпоинте.** Движок
+прогнан на `google/medgemma-4b-it` в vLLM (`--max-logprobs 20`) на golden-наборе
+`golden_en.jsonl` — **10/10**, уверенное разделение (entailed → ~1.0,
+contradicted → ~0.0). Весь путь `HTTP → allowed_token_ids → logprobs → softmax`
+работает, форма ответа completions-API подтвердилась.
+
+Ключевой момент — **промпт**: MedGemma это instruct-модель (gemma3), и на голом
+completions-промпте (без чат-шаблона) она «залипает» на `yes` и не отрабатывает
+отрицания — было **3/10**, отрицания шли с высоким score. Достаточно обернуть
+инструкцию в чат-шаблон Gemma (`<start_of_turn>user … <start_of_turn>model`) —
+и получаем 10/10. Сам движок (softmax по логитам yes/no) при этом не меняется;
+калибруется только промпт (см. дефолт в `scripts/smoke_vllm_nli.py`). Live-пункт
+Definition of Done issue #13 закрыт.
+
+Для справки, ранее движок прогонялся и на `Qwen/Qwen3-Reranker-0.6B` (T4, fp16 —
+Qwen не gemma3, потому заводится и на Turing): **9/10** с родным промптом Qwen,
+единственный промах — пограничный score (~0.53) на явном отрицании. Это мотивирует
+эскалацию на LLM при score в «серой зоне» ~0.3–0.7.
 
 Проверка, что эндпоинт жив и умеет отдавать logprobs:
 
@@ -75,9 +84,8 @@ curl "$VLLM_BASE_URL/v1/completions" \
 
 ## Открытые вопросы (уточнить у автора issue #13, @12PAIN)
 
-1. Готового vLLM-эндпоинта нет — конфиг выше **предложение**; финальный образ
-   MedGemma и хост согласовать.
-2. `calc_nli_score` сделан `async`, потому что текущий `ConfidenceScorer` и
+1. `calc_nli_score` сделан `async`, потому что текущий `ConfidenceScorer` и
    все сетевые адаптеры проекта асинхронны.
-3. Разметка пары (`<Reference>/<Claim>`) и текст `prompt`/`prompt_suffix` —
-   черновые, подбираются под MedGemma по golden-набору `golden_en.jsonl` (рядом).
+2. Промпт откалиброван на golden-наборе (10/10), но набор маленький (10 пар).
+   Перед продакшеном стоит прогнать на большем/клиническом наборе и, при желании,
+   вынести дефолтный промпт из smoke-скрипта в конфиг/DI.

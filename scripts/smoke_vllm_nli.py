@@ -31,16 +31,26 @@ GOLDEN = (
     / "src" / "soap" / "score" / "nli" / "golden_en.jsonl"
 )
 
-# Черновой промпт под logits-паттерн: обрывается ровно там, где модель
-# должна выдать один токен yes/no. Подбирается эмпирически под модель;
-# можно переопределить через env NLI_PROMPT / NLI_PROMPT_SUFFIX (например,
-# под «родной» формат Qwen3-Reranker).
+# Промпт откалиброван под MedGemma (instruct-модель gemma3): инструкция
+# обёрнута в чат-шаблон Gemma (<start_of_turn>user … <start_of_turn>model).
+# На голом completions-промпте (без шаблона) MedGemma «залипает» на yes и не
+# отрабатывает отрицания — эмпирически 3/10 на golden_en.jsonl. С чат-шаблоном
+# — 10/10, уверенное разделение (entailed→~1.0, contradicted→~0.0). Логит-паттерн
+# при этом не меняется: читаем один токен yes/no сразу после метки model.
+# Переопределяется через env NLI_PROMPT / NLI_PROMPT_SUFFIX (напр. под «родной»
+# формат Qwen3-Reranker, у которого свой шаблон).
 PROMPT = os.environ.get(
     "NLI_PROMPT",
-    "You are a clinical NLI judge. Decide whether the Claim logically follows "
-    "from the Reference. Answer only yes or no.\n\n",
+    "<start_of_turn>user\n"
+    "Read the Reference and the Claim. Does the Reference entail the Claim? "
+    "If the Reference states or clearly implies the Claim, answer yes. "
+    "If it contradicts or does not support the Claim, answer no. "
+    "Answer with exactly one word, yes or no.\n\n",
 )
-PROMPT_SUFFIX = os.environ.get("NLI_PROMPT_SUFFIX", "\n\nAnswer (yes or no):")
+PROMPT_SUFFIX = os.environ.get(
+    "NLI_PROMPT_SUFFIX",
+    "\n\n<end_of_turn>\n<start_of_turn>model\n",
+)
 
 
 def _load_pairs() -> list[dict]:
