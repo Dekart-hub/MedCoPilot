@@ -2,9 +2,9 @@
 
 Adapts an ``AsyncOpenAI`` client — pointed at the vLLM OpenAI server (T7) — to
 the :class:`~soap.llm_client.LlmClient` port. vLLM constrains generation to a
-JSON schema through ``extra_body={"guided_json": ...}``, so the model returns a
-document the extractor can validate directly. This is the composition point that
-wires settings into a ready-to-use extractor.
+JSON schema through ``response_format={"type": "json_schema", ...}``, so the
+model returns a document the extractor can validate directly. This is the
+composition point that wires settings into a ready-to-use extractor.
 """
 
 from __future__ import annotations
@@ -45,7 +45,10 @@ class OpenAiLlmClient(LlmClient):
             model=self._model,
             messages=messages,
             temperature=self._temperature,
-            extra_body={"guided_json": schema},
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "soap_extraction", "schema": schema},
+            },
         )
         content = response.choices[0].message.content
         if content is None:
