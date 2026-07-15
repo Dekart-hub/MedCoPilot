@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_EHR_MOCK_PATH = _REPO_ROOT / "mock_ehr" / "patient_context.json"
 
 
 class OpenAISettings(BaseModel):
@@ -47,6 +51,7 @@ class Settings(BaseSettings):
     openai: OpenAISettings
     scoring: ScoringSettings = ScoringSettings()
     ehr: EhrSettings = EhrSettings()
+    ehr_mock_path: Path = DEFAULT_EHR_MOCK_PATH
 
 
 @lru_cache

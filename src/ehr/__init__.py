@@ -1,3 +1,4 @@
+from .client import EhrClient
 from .errors import (
     ApprovalConflictError,
     DialogueNotFoundError,
@@ -31,6 +32,7 @@ __all__ = [
     "ApprovalStatus",
     "DialogueNotFoundError",
     "DisabledEhrGateway",
+    "EhrClient",
     "EhrCoding",
     "EhrError",
     "EhrGateway",
