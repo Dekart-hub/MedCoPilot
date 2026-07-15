@@ -88,3 +88,40 @@ Required environment variables:
   `http://localhost:8001/v1`).
 - `MODEL_ID` — served model id (e.g. `google/medgemma-4b-it`).
 - `PYTHONPATH=src` — so the `src`-layout packages import.
+
+## Load test (E2E latency, NFR-1)
+
+`scripts/load_test.py` measures the latency of the full extraction pipeline to
+confirm **NFR-1 (P99 ≤ 5s)** `[#7/NFR-1]`. For each measured request it creates a
+fresh dialogue (`POST /dialogues`) and then times the expensive extraction +
+confidence-scoring step (`POST /dialogues/{id}/report`) — a fresh dialogue every
+time so idempotency doesn't short-circuit the LLM call. It runs a warmup burst,
+then N measured requests at a chosen concurrency, and prints P50/P95/P99 (plus
+count/mean/max), stating PASS/FAIL against the 5s P99 target. It is a
+dependency-light `asyncio` + `httpx` script — **not** pytest and not part of
+`make check` or CI. It exits non-zero if P99 exceeds the threshold or any request
+fails.
+
+**Authoritative measurement — run it against the full compose stack** (the app,
+Postgres and the GPU-served MedGemma), not a partial one:
+
+```bash
+docker compose --profile gpu up          # app + postgres + vllm (needs the GPU)
+uv run python scripts/load_test.py --requests 100 --concurrency 8
+```
+
+Knobs (CLI flag, or the env var used as its default):
+
+- `--base-url` / `LOAD_BASE_URL` — API base URL (default `http://localhost:8000`).
+- `-n` / `--requests` / `LOAD_REQUESTS` — measured requests (default `30`).
+- `-c` / `--concurrency` / `LOAD_CONCURRENCY` — in-flight requests (default `4`).
+- `-w` / `--warmup` / `LOAD_WARMUP` — unmeasured warmup requests (default `2`).
+- `--threshold` / `LOAD_P99_THRESHOLD` — P99 target in seconds (default `5.0`).
+- `--timeout` / `LOAD_TIMEOUT` — per-request timeout in seconds (default `120`).
+- `--patient-id` / `LOAD_PATIENT_ID` — optional EHR patient id for context.
+
+Reading the output: `p99` is the latency the 5s target is judged on; `p50` and
+`p95` show the typical and tail-approaching cost, `max` the worst single request.
+The final line prints the P99 verdict — a green `PASS` means the tail latency met
+NFR-1 under that load. The authoritative P99 number for NFR-1 sign-off comes from
+this full-stack run; a smoke run against a stub only proves the harness works.
