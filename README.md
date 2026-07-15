@@ -110,6 +110,51 @@ Required environment variables:
 - `MODEL_ID` — served model id (e.g. `google/medgemma-4b-it`).
 - `PYTHONPATH=src` — so the `src`-layout packages import.
 
+## Demo / E2E
+
+`scripts/e2e_smoke.py` is the end-to-end happy-path scenario `[#7/NFR-4]`: it
+drives the whole stack over HTTP — `POST /dialogues`, `POST
+/dialogues/{id}/report?patient_id=P001`, `GET /reports/{id}` — and asserts the
+persisted `SoapReport` is a well-formed clinical document: at least one note,
+all four S/O/A/P sections populated, a complete ICD coding on the Assessment, a
+per-note groundedness `confidence` in `[0, 1]`, and every claim traced to a real
+dialogue turn. It prints a readable pass/fail report and exits non-zero on
+failure. Like the smoke tests, it is run by hand — not pytest, not CI.
+
+### Full stack, one command (GPU machine)
+
+Brings up everything: `postgres` (healthcheck) → `app` (auto-applies Alembic
+migrations on startup, then serves) plus `vllm` serving MedGemma (the `app`
+waits for it to pass its healthcheck before serving). Needs an NVIDIA GPU, the
+NVIDIA Container Toolkit, and `HF_TOKEN` in `.env` (see "Model serving" above):
+
+```bash
+docker compose --profile gpu up -d   # wait until `app` and `vllm` are healthy
+BASE_URL=http://localhost:8000 PYTHONPATH=src uv run python scripts/e2e_smoke.py
+```
+
+### Pragmatic variant: a MedGemma is already running
+
+When a vLLM MedGemma is already serving on the host (single GPU already busy),
+skip the compose `vllm` and run the `app` on the host against a Postgres and
+that existing endpoint. Bring up just the database, then the app:
+
+```bash
+docker compose up -d postgres        # or any scratch Postgres you can reach
+
+DATABASE_URL=postgresql+asyncpg://medcopilot:medcopilot@localhost:5432/medcopilot \
+VLLM_BASE_URL=http://localhost:8001/v1 MODEL_ID=google/medgemma-4b-it \
+NLI_CONFIDENCE_ENABLED=1 PYTHONPATH=src \
+    uv run uvicorn app.main:app --port 8000     # migrations auto-apply on startup
+
+BASE_URL=http://localhost:8000 PYTHONPATH=src uv run python scripts/e2e_smoke.py
+```
+
+`NLI_CONFIDENCE_ENABLED=1` turns on the NLI groundedness scorer so each note's
+`confidence` is populated (off by default to avoid a tokenizer download). The
+compose `postgres` service publishes no host port; point `DATABASE_URL` at
+whatever database the host app can actually reach.
+
 ## Load test (E2E latency, NFR-1)
 
 `scripts/load_test.py` measures the latency of the full extraction pipeline to
