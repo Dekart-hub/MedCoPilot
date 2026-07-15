@@ -68,7 +68,7 @@ services:
   # an NVIDIA GPU of compute capability >= 8.0 (Ampere+) for bfloat16. Behind the
   # `gpu` profile: bring it up explicitly with `docker compose up vllm`.
   vllm:
-    image: vllm/vllm-openai:v0.25.1
+    image: vllm/vllm-openai:v0.17.0
     profiles:
       - gpu
     command:
