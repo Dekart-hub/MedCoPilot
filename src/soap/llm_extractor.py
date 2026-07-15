@@ -23,6 +23,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from dialogue.dialogue import Dialogue, DialogueTurn
+from icd.coder import IcdCoder
 from shared.value_objects import Id
 
 from .extractor import SoapExtractor
@@ -83,10 +84,12 @@ class LlmSoapExtractor(SoapExtractor):
         client: LlmClient,
         scorer: ConfidenceScorer,
         *,
+        coder: IcdCoder | None = None,
         request_timeout: float = 60.0,
     ) -> None:
         self._client = client
         self._scorer = scorer
+        self._coder = coder
         self._request_timeout = request_timeout
 
     async def extract(self, dialogue: Dialogue, patient_context: str) -> SoapReport:
@@ -143,6 +146,8 @@ class LlmSoapExtractor(SoapExtractor):
                 prompt=_extract_prompt(dialogue, patient_context, problem),
             )
             note = _to_note(draft, dialogue.turns)
+            if self._coder is not None:
+                _code_assessment(note, self._coder)
             note.confidence = await self._scorer.score(dialogue, note)
             return note
         except Exception as exc:
@@ -164,6 +169,12 @@ class LlmSoapExtractor(SoapExtractor):
 # --------------------------------------------------------------------------- #
 # DTO -> domain assembly.
 # --------------------------------------------------------------------------- #
+
+
+def _code_assessment(note: SoapNote, coder: IcdCoder) -> None:
+    """Attach a top-1 ICD coding to each assessment claim (may leave it ``None``)."""
+    for claim in note.assessment:
+        claim.icd = coder.code(claim.text)
 
 
 def _to_note(draft: _NoteOut, turns: list[DialogueTurn]) -> SoapNote:

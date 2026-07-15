@@ -20,6 +20,7 @@ from openai.types.chat import (
 )
 
 from config.settings import Settings
+from icd.coder import IcdCoder
 from infra.vllm.deployment import MEDGEMMA_4B
 from soap.llm_client import LlmClient
 from soap.llm_extractor import LlmSoapExtractor
@@ -71,7 +72,17 @@ def build_llm_client(settings: Settings) -> OpenAiLlmClient:
 
 
 def build_llm_extractor(
-    settings: Settings, scorer: ConfidenceScorer | None = None
+    settings: Settings,
+    scorer: ConfidenceScorer | None = None,
+    coder: IcdCoder | None = None,
 ) -> LlmSoapExtractor:
-    """Wire the LLM client and confidence scorer into a ready SOAP extractor."""
-    return LlmSoapExtractor(build_llm_client(settings), scorer or NullConfidenceScorer())
+    """Wire the LLM client, confidence scorer and ICD coder into a SOAP extractor.
+
+    ``coder`` is optional: left ``None``, assessment claims are extracted without
+    ICD codings (backward-compatible default).
+    """
+    return LlmSoapExtractor(
+        build_llm_client(settings),
+        scorer or NullConfidenceScorer(),
+        coder=coder,
+    )
