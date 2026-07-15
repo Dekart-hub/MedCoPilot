@@ -47,6 +47,31 @@ Artifacts land in `runs/soap_bench/<run_id>/`: `report.json`, `summary.md`
 (class distribution, subscores, funnel, limitations) and `spot_check.csv`
 for human verification.
 
+## Live acceptance check (SOAP extractor)
+
+`scripts/smoke_extractor.py` is a manual QA runner (not pytest, not CI). It
+pushes a few prepared dialogues through the real extraction pipeline on a live
+vLLM server (MedGemma), validates each resulting `SoapReport` against the SOAP
+schema invariants, and prints a human-readable pass/fail report. It requires a
+live vLLM server (task T7) reachable over the network.
+
+The pass/fail gate is the schema invariants: S/O/A/P structure present and
+populated, every claim cites a real dialogue turn, and at least one note per
+dialogue. Verbatim grounding of each quote in its cited turn is reported per
+claim as a Tier-0 quality signal (see `src/soap/score/tier0.py`) but does not
+flip the verdict. Exit code is 0 when every dialogue passes, 1 otherwise.
+
+```bash
+VLLM_BASE_URL=http://localhost:8001/v1 MODEL_ID=google/medgemma-4b-it \
+    PYTHONPATH=src uv run python scripts/smoke_extractor.py
+```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VLLM_BASE_URL` | `http://localhost:8001/v1` | OpenAI-compatible vLLM endpoint |
+| `MODEL_ID` | `google/medgemma-4b-it` | served model id |
+| `VLLM_API_KEY` | `EMPTY` | endpoint key (vLLM ignores it when unset) |
+
 ## Project Structure
 Prerequisites: Python 3.12+, [uv](https://github.com/astral-sh/uv).
 
