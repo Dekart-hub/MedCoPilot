@@ -64,3 +64,27 @@ The launch arguments live in `src/infra/vllm` (`VllmDeployment` /
 `MEDGEMMA_4B`) as the reusable source of truth; the compose command mirrors
 them. Within the compose network the app reaches the server at
 `http://vllm:8000/v1` (`VLLM_BASE_URL`).
+
+## Manual acceptance (SOAP extractor smoke test)
+
+`scripts/smoke_extractor.py` is a QA-runs-it-by-hand acceptance check — **not**
+a pytest test and not part of `make check` or CI. It pushes a few varied
+dialogues (pneumonia, hypertension, back pain) through the real extractor on a
+live vLLM server, validates each `SoapReport` against the SOAP invariants
+(S/O/A/P structure, at least one note per dialogue, every claim citing a real
+dialogue turn), and prints a per-dialogue pass/fail report. It exits non-zero if
+any dialogue fails.
+
+With the model server up (see above), run it against the host endpoint:
+
+```bash
+VLLM_BASE_URL=http://localhost:8001/v1 MODEL_ID=google/medgemma-4b-it \
+    PYTHONPATH=src uv run python scripts/smoke_extractor.py
+```
+
+Required environment variables:
+
+- `VLLM_BASE_URL` — OpenAI-compatible base URL of the vLLM server (e.g.
+  `http://localhost:8001/v1`).
+- `MODEL_ID` — served model id (e.g. `google/medgemma-4b-it`).
+- `PYTHONPATH=src` — so the `src`-layout packages import.
