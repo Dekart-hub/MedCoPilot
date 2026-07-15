@@ -21,6 +21,7 @@ from openai.types.chat import (
 
 from config.settings import Settings
 from icd.coder import IcdCoder
+from infra.nli import build_nli_confidence_scorer
 from infra.vllm.deployment import MEDGEMMA_4B
 from soap.llm_client import LlmClient
 from soap.llm_extractor import LlmSoapExtractor
@@ -79,10 +80,19 @@ def build_llm_extractor(
     """Wire the LLM client, confidence scorer and ICD coder into a SOAP extractor.
 
     ``coder`` is optional: left ``None``, assessment claims are extracted without
-    ICD codings (backward-compatible default).
+    ICD codings (backward-compatible default). ``scorer`` is opt-in: an explicit
+    scorer wins; otherwise the NLI scorer is used only when
+    ``settings.nli_confidence_enabled`` is set, and the default stays
+    :class:`NullConfidenceScorer` (no tokenizer download).
     """
     return LlmSoapExtractor(
         build_llm_client(settings),
-        scorer or NullConfidenceScorer(),
+        scorer or _default_scorer(settings),
         coder=coder,
     )
+
+
+def _default_scorer(settings: Settings) -> ConfidenceScorer:
+    if settings.nli_confidence_enabled:
+        return build_nli_confidence_scorer(settings)
+    return NullConfidenceScorer()
