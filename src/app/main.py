@@ -10,22 +10,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
 
 import structlog
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.dependencies import SessionDep
 from app.middleware import RequestLoggingMiddleware
+from app.routes import router
 from config.logging import configure_logging
 from config.settings import get_settings
-from infra.db import dispose_engine, get_session
+from infra.db import dispose_engine
 from infra.migrations import run_migrations
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @asynccontextmanager
@@ -51,6 +49,7 @@ def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     app = FastAPI(title="MedCoPilot", lifespan=lifespan)
     app.add_middleware(RequestLoggingMiddleware)
+    app.include_router(router)
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
