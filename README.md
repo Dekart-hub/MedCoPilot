@@ -34,6 +34,27 @@ make check            # ruff check + mypy + pytest
 Individual targets are also available: `make lint`, `make format`,
 `make typecheck`, `make test`.
 
+## Demo UI
+
+`ui/app.py` is a small [Streamlit](https://streamlit.io/) app for exercising the
+baseline by hand: paste a dialogue, optionally pin a `patient_id`, and see the
+extracted `SoapReport` — the four S/O/A/P sections, the ICD code on Assessment
+claims, per-note confidence, and each claim linked back to the dialogue turn it
+cites. It is a **demo only** (out of scope for the baseline DoD): a thin HTTP
+client over the REST API, kept in its own optional `demo` dependency group so
+the core install and the production image stay lean.
+
+**The baseline API must be running first** (see `make run`, and bring up the
+database and model server per the sections below):
+
+```bash
+uv run --group demo streamlit run ui/app.py
+```
+
+The `--group demo` flag installs Streamlit on first use. Point the app at a
+non-default API with the sidebar field or the `MEDCOPILOT_API_URL` environment
+variable (default `http://localhost:8000`).
+
 ## Model serving (vLLM + GPU)
 
 The clinical reasoning stages (SOAP extraction, NLI groundedness scoring) call
@@ -133,3 +154,40 @@ BASE_URL=http://localhost:8000 PYTHONPATH=src uv run python scripts/e2e_smoke.py
 `confidence` is populated (off by default to avoid a tokenizer download). The
 compose `postgres` service publishes no host port; point `DATABASE_URL` at
 whatever database the host app can actually reach.
+
+## Load test (E2E latency, NFR-1)
+
+`scripts/load_test.py` measures the latency of the full extraction pipeline to
+confirm **NFR-1 (P99 ≤ 5s)** `[#7/NFR-1]`. For each measured request it creates a
+fresh dialogue (`POST /dialogues`) and then times the expensive extraction +
+confidence-scoring step (`POST /dialogues/{id}/report`) — a fresh dialogue every
+time so idempotency doesn't short-circuit the LLM call. It runs a warmup burst,
+then N measured requests at a chosen concurrency, and prints P50/P95/P99 (plus
+count/mean/max), stating PASS/FAIL against the 5s P99 target. It is a
+dependency-light `asyncio` + `httpx` script — **not** pytest and not part of
+`make check` or CI. It exits non-zero if P99 exceeds the threshold or any request
+fails.
+
+**Authoritative measurement — run it against the full compose stack** (the app,
+Postgres and the GPU-served MedGemma), not a partial one:
+
+```bash
+docker compose --profile gpu up          # app + postgres + vllm (needs the GPU)
+uv run python scripts/load_test.py --requests 100 --concurrency 8
+```
+
+Knobs (CLI flag, or the env var used as its default):
+
+- `--base-url` / `LOAD_BASE_URL` — API base URL (default `http://localhost:8000`).
+- `-n` / `--requests` / `LOAD_REQUESTS` — measured requests (default `30`).
+- `-c` / `--concurrency` / `LOAD_CONCURRENCY` — in-flight requests (default `4`).
+- `-w` / `--warmup` / `LOAD_WARMUP` — unmeasured warmup requests (default `2`).
+- `--threshold` / `LOAD_P99_THRESHOLD` — P99 target in seconds (default `5.0`).
+- `--timeout` / `LOAD_TIMEOUT` — per-request timeout in seconds (default `120`).
+- `--patient-id` / `LOAD_PATIENT_ID` — optional EHR patient id for context.
+
+Reading the output: `p99` is the latency the 5s target is judged on; `p50` and
+`p95` show the typical and tail-approaching cost, `max` the worst single request.
+The final line prints the P99 verdict — a green `PASS` means the tail latency met
+NFR-1 under that load. The authoritative P99 number for NFR-1 sign-off comes from
+this full-stack run; a smoke run against a stub only proves the harness works.
