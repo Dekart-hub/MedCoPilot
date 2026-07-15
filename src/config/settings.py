@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
     vllm_base_url: str | None = None
     vllm_api_key: str | None = None
     model_id: str | None = None
+
+    # Path to the mock EHR's ``patient_id -> context`` JSON. Unset ⇒ the bundled
+    # fixture wired by ``infra.ehr.build_ehr_client``.
+    ehr_mock_path: Path | None = None
 
 
 @lru_cache
