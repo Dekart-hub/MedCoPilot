@@ -50,6 +50,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # `vllm` lives behind the `gpu` profile. `required: false` keeps the default
+      # CPU-only stack startable (vllm absent ⇒ not treated as a dependency), yet
+      # under `--profile gpu` the app waits for MedGemma to pass its healthcheck
+      # before serving, so the first extraction never races a cold model.
+      vllm:
+        condition: service_healthy
+        required: false
     healthcheck:
       test:
         - CMD
