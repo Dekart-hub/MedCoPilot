@@ -34,6 +34,27 @@ make check            # ruff check + mypy + pytest
 Individual targets are also available: `make lint`, `make format`,
 `make typecheck`, `make test`.
 
+## Demo UI
+
+`ui/app.py` is a small [Streamlit](https://streamlit.io/) app for exercising the
+baseline by hand: paste a dialogue, optionally pin a `patient_id`, and see the
+extracted `SoapReport` — the four S/O/A/P sections, the ICD code on Assessment
+claims, per-note confidence, and each claim linked back to the dialogue turn it
+cites. It is a **demo only** (out of scope for the baseline DoD): a thin HTTP
+client over the REST API, kept in its own optional `demo` dependency group so
+the core install and the production image stay lean.
+
+**The baseline API must be running first** (see `make run`, and bring up the
+database and model server per the sections below):
+
+```bash
+uv run --group demo streamlit run ui/app.py
+```
+
+The `--group demo` flag installs Streamlit on first use. Point the app at a
+non-default API with the sidebar field or the `MEDCOPILOT_API_URL` environment
+variable (default `http://localhost:8000`).
+
 ## Model serving (vLLM + GPU)
 
 The clinical reasoning stages (SOAP extraction, NLI groundedness scoring) call
