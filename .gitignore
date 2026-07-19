@@ -31,3 +31,6 @@ data/
 
 # Internal working docs
 docs/
+
+# Claude Code agent worktrees (ephemeral)
+.claude/

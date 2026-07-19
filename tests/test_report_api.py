@@ -61,16 +61,21 @@ class InMemorySoapReportRepository(SoapReportRepository):
     def __init__(self) -> None:
         self._by_id: dict[object, SoapReport] = {}
         self._by_dialogue: dict[object, SoapReport] = {}
+        self._dialogue_of: dict[object, DialogueId] = {}
 
     async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
         self._by_id[report.id.value] = report
         self._by_dialogue[dialogue_id.value] = report
+        self._dialogue_of[report.id.value] = dialogue_id
 
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
         return self._by_id.get(report_id.value)
 
     async def get_by_dialogue_id(self, dialogue_id: DialogueId) -> SoapReport | None:
         return self._by_dialogue.get(dialogue_id.value)
+
+    async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
+        return self._dialogue_of.get(report_id.value)
 
 
 class StubExtractor(SoapExtractor):

@@ -29,3 +29,7 @@ class SoapReportRepository(ABC):
     @abstractmethod
     async def get_by_dialogue_id(self, dialogue_id: DialogueId) -> SoapReport | None:
         """Return the report extracted from ``dialogue_id``, or ``None``."""
+
+    @abstractmethod
+    async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
+        """Return the id of the dialogue ``report_id`` was extracted from, or ``None``."""

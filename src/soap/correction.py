@@ -129,7 +129,7 @@ class SoapReportCorrection(Entity[CorrectionId]):
         plan: list[SoapClaim] | None = None,
     ) -> CorrectedNote:
         """Add a brand-new note (``source_note_id = None``); allowed in DRAFT only."""
-        self._require_editable()
+        self.ensure_editable()
         note = CorrectedNote(
             id=Id.new(),
             source_note_id=None,
@@ -153,7 +153,7 @@ class SoapReportCorrection(Entity[CorrectionId]):
         plan: list[SoapClaim] | None = None,
     ) -> CorrectedNote:
         """Replace a note's four sections (ICD rides on the assessment claims); DRAFT only."""
-        self._require_editable()
+        self.ensure_editable()
         note = self._note(note_id)
         note.subjective = list(subjective or [])
         note.objective = list(objective or [])
@@ -164,7 +164,7 @@ class SoapReportCorrection(Entity[CorrectionId]):
 
     def delete_note(self, note_id: SoapNoteId, *, at: datetime) -> None:
         """Drop a note from the doctor's version; allowed in DRAFT only."""
-        self._require_editable()
+        self.ensure_editable()
         self.notes.remove(self._note(note_id))
         self.updated_at = at
 
@@ -184,7 +184,8 @@ class SoapReportCorrection(Entity[CorrectionId]):
         self.verified_at = None
         self.updated_at = at
 
-    def _require_editable(self) -> None:
+    def ensure_editable(self) -> None:
+        """Guard: a verified correction rejects any edit until it is reopened."""
         if self.status is CorrectionStatus.VERIFIED:
             raise CorrectionNotEditable("a verified correction must be reopened before editing")
 
