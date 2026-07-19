@@ -37,12 +37,16 @@ Individual targets are also available: `make lint`, `make format`,
 ## Demo UI
 
 `ui/app.py` is a small [Streamlit](https://streamlit.io/) app for exercising the
-baseline by hand: paste a dialogue, optionally pin a `patient_id`, and see the
-extracted `SoapReport` — the four S/O/A/P sections, the ICD code on Assessment
-claims, per-note confidence, and each claim linked back to the dialogue turn it
-cites. It is a **demo only** (out of scope for the baseline DoD): a thin HTTP
+service by hand. It has two tabs — **SOAP extraction** and **Correction
+workflow** — and is a **demo only** (out of scope for every DoD): a thin HTTP
 client over the REST API, kept in its own optional `demo` dependency group so
-the core install and the production image stay lean.
+the core install and the production image stay lean. It imports nothing from
+`src` and has no automated tests.
+
+The **SOAP extraction** tab: paste a dialogue, optionally pin a `patient_id`,
+and see the extracted `SoapReport` — the four S/O/A/P sections, the ICD code on
+Assessment claims, per-note confidence, and each claim linked back to the
+dialogue turn it cites.
 
 **The baseline API must be running first** (see `make run`, and bring up the
 database and model server per the sections below):
@@ -54,6 +58,39 @@ uv run --group demo streamlit run ui/app.py
 The `--group demo` flag installs Streamlit on first use. Point the app at a
 non-default API with the sidebar field or the `MEDCOPILOT_API_URL` environment
 variable (default `http://localhost:8000`).
+
+### Demo: correction workflow
+
+The **Correction workflow** tab drives the whole doctor-correction lifecycle
+(story #8) against the same API. Extract a report on the first tab and its ids
+carry over pre-filled; or type a `report_id` (and the source `dialogue_id`, used
+to resolve citations) by hand, then **Load correction** — this opens or resumes
+the draft (`POST /reports/{id}/correction`).
+
+The screen then shows the correction's **status** (`draft` / `verified`) with the
+`verified_by` / `verified_at` stamp once verified, and for every note its
+**origin** — *copied from original* (`source_note_id` present) vs *doctor-added*
+(`null`) — its full S/O/A/P sections, the ICD on Assessment claims, and each
+citation resolved to its **source-turn text** (fetched with `GET /dialogues/{id}`).
+
+While the correction is a draft you can, wired to the API:
+
+- **edit a note** — replace its section text, pick which turns each claim cites,
+  and re-code the ICD (`PUT …/notes/{note_id}`);
+- **add a doctor-authored note** (`POST …/notes`);
+- **delete a note** (`DELETE …/notes/{note_id}`);
+- **verify** it under a `doctor_id` (`POST …/verify`).
+
+Once verified the UI reflects the locked state; an **Attempt an edit** button
+demonstrates the `409 {code, detail}` rejection, and **Reopen for editing**
+(`POST …/reopen`) returns it to a draft. All API errors are rendered as readable
+`code: detail` messages.
+
+This tab relies on the read endpoint **`GET /dialogues/{id}`** — it returns a
+dialogue with its ordered turns (`{id, speaker, text}`), or `404` if the
+dialogue does not exist — so the UI can turn each citation's opaque `turn_id`
+back into the text the doctor actually said. Unlike the demo UI, that endpoint
+is real API surface and is unit-tested.
 
 ## SOAP correction workflow (story #8)
 
