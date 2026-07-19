@@ -24,7 +24,19 @@ from icd.bm25_coder import Bm25IcdCoder
 from infra.db import get_session
 from infra.ehr import build_ehr_client
 from infra.llm import build_llm_extractor
+from soap.correction_repository import SoapReportCorrectionRepository
+from soap.correction_use_cases import (
+    AddCorrectedNote,
+    DeleteCorrectedNote,
+    ReopenSoapCorrection,
+    StartSoapCorrection,
+    UpdateCorrectedNote,
+    VerifySoapCorrection,
+)
 from soap.extractor import SoapExtractor
+from soap.providers import (
+    get_soap_report_correction_repository as _build_correction_repository,
+)
 from soap.providers import get_soap_report_repository as _build_report_repository
 from soap.repository import SoapReportRepository
 from soap.use_cases import ExtractSoapReport
@@ -72,3 +84,61 @@ def get_extract_soap_report(
     ehr: Annotated[EhrClient, Depends(get_ehr_client)],
 ) -> ExtractSoapReport:
     return ExtractSoapReport(session, dialogues, reports, extractor, ehr)
+
+
+def get_correction_repository(session: SessionDep) -> SoapReportCorrectionRepository:
+    return _build_correction_repository(session)
+
+
+CorrectionRepositoryDep = Annotated[
+    SoapReportCorrectionRepository, Depends(get_correction_repository)
+]
+ReportRepositoryDep = Annotated[SoapReportRepository, Depends(get_soap_report_repository)]
+DialogueRepositoryDep = Annotated[DialogueRepository, Depends(get_dialogue_repository)]
+
+
+def get_start_soap_correction(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    reports: ReportRepositoryDep,
+) -> StartSoapCorrection:
+    return StartSoapCorrection(session, corrections, reports)
+
+
+def get_add_corrected_note(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    reports: ReportRepositoryDep,
+    dialogues: DialogueRepositoryDep,
+) -> AddCorrectedNote:
+    return AddCorrectedNote(session, corrections, reports, dialogues)
+
+
+def get_update_corrected_note(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    reports: ReportRepositoryDep,
+    dialogues: DialogueRepositoryDep,
+) -> UpdateCorrectedNote:
+    return UpdateCorrectedNote(session, corrections, reports, dialogues)
+
+
+def get_delete_corrected_note(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+) -> DeleteCorrectedNote:
+    return DeleteCorrectedNote(session, corrections)
+
+
+def get_verify_soap_correction(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+) -> VerifySoapCorrection:
+    return VerifySoapCorrection(session, corrections)
+
+
+def get_reopen_soap_correction(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+) -> ReopenSoapCorrection:
+    return ReopenSoapCorrection(session, corrections)

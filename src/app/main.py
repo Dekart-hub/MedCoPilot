@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.dependencies import SessionDep
+from app.errors import register_exception_handlers
 from app.middleware import RequestLoggingMiddleware
 from app.routes import router
 from config.logging import configure_logging
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="MedCoPilot", lifespan=lifespan)
     app.add_middleware(RequestLoggingMiddleware)
     app.include_router(router)
+    register_exception_handlers(app)
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
