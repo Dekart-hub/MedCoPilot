@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from dialogue.dialogue import DialogueId, DialogueTurnId
+from dialogue.repository import DialogueRepository
+from dialogue.serialization import dialogue_to_dict
 from dialogue.use_cases import AddDialogue, AddDialogueCommand, TurnInput
 from shared.value_objects import Id
 from soap.correction import CorrectionId, SoapReportCorrection
@@ -55,6 +57,7 @@ from .dependencies import (
     get_add_dialogue,
     get_correction_repository,
     get_delete_corrected_note,
+    get_dialogue_repository,
     get_extract_soap_report,
     get_reopen_soap_correction,
     get_soap_report_repository,
@@ -93,6 +96,19 @@ async def create_dialogue(
     dialogue_id = await add_dialogue.execute(command)
     await session.commit()
     return DialogueCreated(id=str(dialogue_id))
+
+
+@router.get("/dialogues/{dialogue_id}", tags=["dialogues"])
+async def get_dialogue(
+    dialogue_id: UUID,
+    dialogues: Annotated[DialogueRepository, Depends(get_dialogue_repository)],
+) -> dict[str, Any]:
+    """Return a persisted dialogue with its ordered turns by id."""
+    dialogue_key: DialogueId = Id(dialogue_id)
+    dialogue = await dialogues.get(dialogue_key)
+    if dialogue is None:
+        raise HTTPException(status_code=404, detail="dialogue not found")
+    return dialogue_to_dict(dialogue)
 
 
 @router.post("/dialogues/{dialogue_id}/report", tags=["reports"])
