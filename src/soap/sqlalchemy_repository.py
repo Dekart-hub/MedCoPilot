@@ -43,6 +43,14 @@ class SqlAlchemySoapReportRepository(SoapReportRepository):
     async def get_by_dialogue_id(self, dialogue_id: DialogueId) -> SoapReport | None:
         return await self._fetch(SoapReportRow.dialogue_id == dialogue_id.value)
 
+    async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
+        statement = select(SoapReportRow.dialogue_id).where(SoapReportRow.id == report_id.value)
+        raw = (await self._session.execute(statement)).scalar_one_or_none()
+        if raw is None:
+            return None
+        dialogue_id: DialogueId = Id(raw)
+        return dialogue_id
+
     async def _fetch(self, condition: object) -> SoapReport | None:
         statement = (
             select(SoapReportRow)
