@@ -7,8 +7,10 @@ rendered as strings so the result is directly ``json.dumps``-able.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+from .correction import CorrectedNote, SoapReportCorrection
 from .soap import (
     AssessmentClaim,
     IcdCoding,
@@ -25,6 +27,33 @@ def report_to_dict(report: SoapReport) -> dict[str, Any]:
         "id": str(report.id),
         "notes": [_note_to_dict(note) for note in report.notes],
     }
+
+
+def correction_to_dict(correction: SoapReportCorrection) -> dict[str, Any]:
+    """Serialize a doctor's correction, including status and verification stamp."""
+    return {
+        "id": str(correction.id),
+        "source_report_id": str(correction.source_report_id),
+        "status": correction.status.value,
+        "verified_by": correction.verified_by,
+        "verified_at": _iso(correction.verified_at),
+        "notes": [_corrected_note_to_dict(note) for note in correction.notes],
+    }
+
+
+def _corrected_note_to_dict(note: CorrectedNote) -> dict[str, Any]:
+    return {
+        "id": str(note.id),
+        "source_note_id": str(note.source_note_id) if note.source_note_id is not None else None,
+        "sections": {
+            section.value: [_claim_to_dict(claim) for claim in claims]
+            for section, claims in note.sections()
+        },
+    }
+
+
+def _iso(moment: datetime | None) -> str | None:
+    return moment.isoformat() if moment is not None else None
 
 
 def _note_to_dict(note: SoapNote) -> dict[str, Any]:

@@ -55,6 +55,92 @@ The `--group demo` flag installs Streamlit on first use. Point the app at a
 non-default API with the sidebar field or the `MEDCOPILOT_API_URL` environment
 variable (default `http://localhost:8000`).
 
+## SOAP correction workflow (story #8)
+
+The generated report is the model's output and is **immutable**: `GET
+/reports/{id}` always returns that original, before and after any correction. A
+doctor's edits live in a separate, single working version — the *correction* —
+which starts as a `draft` and becomes `verified` once the doctor has checked it.
+Every corrected note keeps a `source_note_id` back to the original note it was
+copied from (a doctor-added note has `source_note_id: null`).
+
+The correction is keyed by the report it edits — at most one per report — so all
+endpoints hang off `/reports/{report_id}/correction`:
+
+| Method + path | Purpose |
+|---|---|
+| `POST /reports/{report_id}/correction` | Open the draft, or return the existing one (idempotent). |
+| `GET /reports/{report_id}/correction` | Return the current draft/verified version. |
+| `PUT /reports/{report_id}/correction/notes/{note_id}` | Replace a note's S/O/A/P sections, citations and ICD. |
+| `POST /reports/{report_id}/correction/notes` | Add a doctor-authored note. |
+| `DELETE /reports/{report_id}/correction/notes/{note_id}` | Delete a note. |
+| `POST /reports/{report_id}/correction/verify` | Verify the draft (`draft → verified`). |
+| `POST /reports/{report_id}/correction/reopen` | Return a verified correction to editing (`verified → draft`). |
+
+Editing is only allowed while the correction is a `draft`; a `verified`
+correction rejects every change until it is reopened.
+
+### Request examples
+
+Open (or resume) the correction:
+
+```bash
+curl -X POST http://localhost:8000/reports/$REPORT_ID/correction
+```
+
+Replace a note's content. Sections mirror the response shape; each claim must
+cite at least one turn of the **source dialogue** (an ungrounded citation is
+rejected), and only Assessment claims carry an `icd`:
+
+```bash
+curl -X PUT http://localhost:8000/reports/$REPORT_ID/correction/notes/$NOTE_ID \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "assessment": [
+          {
+            "text": "Migraine without aura.",
+            "citations": [{"turn_id": "'$TURN_ID'", "quote": "headache for three days"}],
+            "icd": {"code": "G43.0", "name": "Migraine without aura",
+                    "classifier_url": "https://icd/G43.0"}
+          }
+        ],
+        "plan": [
+          {"text": "Start sumatriptan.", "citations": [{"turn_id": "'$TURN_ID'"}]}
+        ]
+      }'
+```
+
+Add a note (same body shape, no `note_id`), delete a note, then verify and, if
+needed, reopen:
+
+```bash
+curl -X POST   http://localhost:8000/reports/$REPORT_ID/correction/notes -H 'Content-Type: application/json' -d '{ ... }'
+curl -X DELETE http://localhost:8000/reports/$REPORT_ID/correction/notes/$NOTE_ID
+curl -X POST   http://localhost:8000/reports/$REPORT_ID/correction/verify -H 'Content-Type: application/json' -d '{"doctor_id": "dr-house"}'
+curl -X POST   http://localhost:8000/reports/$REPORT_ID/correction/reopen
+```
+
+> **`doctor_id` is not authentication.** It is only an attribution label stamped
+> onto the verified version (recorded as `verified_by`) so the corrected note
+> shows who signed off. It grants no access, is not verified against any
+> identity provider, and must not be treated as a security or authorization
+> mechanism. Real authn/authz is out of scope for this baseline.
+
+### Errors
+
+Correction errors return a stable body `{"code": "...", "detail": "..."}` with a
+machine-readable `code`:
+
+| Status | `code` | Cause |
+|---|---|---|
+| 404 | `report_not_found` | The report to correct does not exist. |
+| 404 | `correction_not_found` | The report has no correction yet. |
+| 404 | `note_not_found` | The note id does not belong to the correction. |
+| 409 | `correction_not_editable` | Editing a `verified` correction (reopen it first). |
+| 422 | `citation_not_in_source_dialogue` | A claim cites a turn absent from the source dialogue. |
+| 422 | `empty_doctor_id` | `verify` was called without a non-blank `doctor_id`. |
+| 422 | `duplicate_source_note` | Two corrected notes claim the same source note. |
+
 ## Model serving (vLLM + GPU)
 
 The clinical reasoning stages (SOAP extraction, NLI groundedness scoring) call

@@ -9,9 +9,17 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .correction_repository import SoapReportCorrectionRepository
+from .correction_sqlalchemy_repository import SqlAlchemySoapReportCorrectionRepository
 from .repository import SoapReportRepository
 from .sqlalchemy_repository import SqlAlchemySoapReportRepository
 
 
 def get_soap_report_repository(session: AsyncSession) -> SoapReportRepository:
     return SqlAlchemySoapReportRepository(session)
+
+
+def get_soap_report_correction_repository(
+    session: AsyncSession,
+) -> SoapReportCorrectionRepository:
+    return SqlAlchemySoapReportCorrectionRepository(session)
