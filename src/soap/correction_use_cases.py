@@ -216,6 +216,7 @@ class AddCorrectedNote(_EditingUseCase):
 
     async def execute(self, command: AddCorrectedNoteCommand) -> CorrectedNote:
         correction = await self._load(command.correction_id)
+        correction.ensure_editable()
         await self._reject_ungrounded(
             correction, command.subjective, command.objective, command.assessment, command.plan
         )
@@ -235,6 +236,7 @@ class UpdateCorrectedNote(_EditingUseCase):
 
     async def execute(self, command: UpdateCorrectedNoteCommand) -> CorrectedNote:
         correction = await self._load(command.correction_id)
+        correction.ensure_editable()
         await self._reject_ungrounded(
             correction, command.subjective, command.objective, command.assessment, command.plan
         )

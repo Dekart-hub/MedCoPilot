@@ -390,6 +390,23 @@ def test_verified_correction_rejects_further_edits() -> None:
         )
 
 
+def test_verified_correction_rejects_edits_before_validating_citations() -> None:
+    # Editability is the first gate: a verified correction is rejected with
+    # CorrectionNotEditable even when the same edit carries a stray citation,
+    # so "any change after verify -> 409" holds regardless of payload.
+    env = _env()
+    correction = _started(env)
+    _run(env.verify().execute(VerifySoapCorrectionCommand(correction.id, doctor_id="dr-house")))
+    stray = SoapClaim(id=Id.new(), text="Made up.", citations=[TurnCitation(turn_id=Id.new())])
+
+    with pytest.raises(CorrectionNotEditable):
+        _run(
+            env.add().execute(
+                AddCorrectedNoteCommand(correction_id=correction.id, subjective=[stray])
+            )
+        )
+
+
 def test_reopen_returns_to_draft_and_re_enables_edits() -> None:
     env = _env()
     correction = _started(env)
