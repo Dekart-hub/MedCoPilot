@@ -26,7 +26,7 @@ from shared.value_objects import Id
 from soap.correction import CorrectionId, SoapReportCorrection
 from soap.correction_repository import SoapReportCorrectionRepository
 from soap.extractor import SoapExtractor
-from soap.repository import SoapReportRepository
+from soap.repository import ReportSummary, SoapReportRepository
 from soap.soap import (
     AssessmentClaim,
     IcdCoding,
@@ -69,6 +69,7 @@ class InMemoryReports(SoapReportRepository):
         self.by_id: dict[object, SoapReport] = {}
         self.by_dialogue: dict[object, SoapReport] = {}
         self.dialogue_of: dict[object, DialogueId] = {}
+        self.created_at: dict[object, datetime] = {}
 
     async def save(
         self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
@@ -76,6 +77,7 @@ class InMemoryReports(SoapReportRepository):
         self.by_id[report.id.value] = report
         self.by_dialogue[dialogue_id.value] = report
         self.dialogue_of[report.id.value] = dialogue_id
+        self.created_at[report.id.value] = created_at
 
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
         return self.by_id.get(report_id.value)
@@ -85,6 +87,17 @@ class InMemoryReports(SoapReportRepository):
 
     async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
         return self.dialogue_of.get(report_id.value)
+
+    async def list_summaries(self) -> list[ReportSummary]:
+        summaries = [
+            ReportSummary(
+                report_id=report.id,
+                dialogue_id=self.dialogue_of[report.id.value],
+                created_at=self.created_at[report.id.value],
+            )
+            for report in self.by_id.values()
+        ]
+        return sorted(summaries, key=lambda summary: summary.created_at, reverse=True)
 
 
 class InMemoryCorrections(SoapReportCorrectionRepository):

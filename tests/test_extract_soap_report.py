@@ -21,7 +21,7 @@ from dialogue.repository import DialogueRepository
 from infra.ehr import MockEhrClient
 from shared.value_objects import Id
 from soap.extractor import SoapExtractor
-from soap.repository import SoapReportRepository
+from soap.repository import ReportSummary, SoapReportRepository
 from soap.soap import (
     AssessmentClaim,
     IcdCoding,
@@ -112,6 +112,17 @@ class InMemorySoapReportRepository(SoapReportRepository):
 
     async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
         return self._dialogue_of.get(report_id.value)
+
+    async def list_summaries(self) -> list[ReportSummary]:
+        summaries = [
+            ReportSummary(
+                report_id=report.id,
+                dialogue_id=self._dialogue_of[report.id.value],
+                created_at=self.created_at[report.id.value],
+            )
+            for report in self._by_id.values()
+        ]
+        return sorted(summaries, key=lambda summary: summary.created_at, reverse=True)
 
 
 class StubExtractor(SoapExtractor):
@@ -227,6 +238,9 @@ class RacingReports(SoapReportRepository):
 
     async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
         return None
+
+    async def list_summaries(self) -> list[ReportSummary]:
+        return []
 
 
 class ConflictingSession(FakeSession):
