@@ -178,6 +178,49 @@ machine-readable `code`:
 | 422 | `empty_doctor_id` | `verify` was called without a non-blank `doctor_id`. |
 | 422 | `duplicate_source_note` | Two corrected notes claim the same source note. |
 
+## Online SOAP quality (story #10)
+
+`GET /dialogues/{dialogue_id}/quality` calculates extraction quality against the
+dialogue's current **verified** doctor correction. Metrics are calculated on
+every request and are not persisted: the immutable generated `SoapReport` and
+the latest saved correction remain the sources of truth.
+
+| Response field | Meaning |
+|---|---|
+| `dialogue_id` | Dialogue whose extracted report is being evaluated. |
+| `report_id` | Immutable generated report used as the comparison source. |
+| `correction_id` | Doctor correction used as the verified target. |
+| `notes_added` | Doctor-authored notes (`source_note_id: null`). |
+| `notes_removed` | Original notes with no corrected note carrying their id. |
+| `changed_characters` | Sum of character edit distances across matched notes only. |
+| `diagnosis_changes` | Matched notes whose Assessment text or ICD tuple changed. |
+| `note_diffs` | Per-matched-note ids, character distance and diagnosis-change flag. |
+
+Corrected and original notes are matched only by `source_note_id`; text
+similarity is never used for lineage. For each matched note, claim text is
+concatenated in stable Subjective → Objective → Assessment → Plan order and a
+unit-cost Levenshtein distance is calculated (insertion, deletion and
+substitution each cost 1). Only newline forms are normalized. IDs, citations,
+confidence and ICD metadata do not contribute to `changed_characters`.
+Added/removed notes are counted separately and do not inflate character or
+diagnosis metrics. An ICD-only change still increments `diagnosis_changes`.
+
+The endpoint is intentionally unavailable while the correction is a draft. A
+reopen immediately hides previously available metrics; the next verification
+exposes a fresh calculation over the updated content.
+
+```bash
+curl http://localhost:8000/dialogues/$DIALOGUE_ID/quality
+```
+
+Quality errors use the same stable `{"code": "...", "detail": "..."}` body:
+
+| Status | `code` | Cause |
+|---|---|---|
+| 404 | `report_not_found` | No extracted report exists for the dialogue. |
+| 404 | `correction_not_found` | The report has no doctor correction. |
+| 409 | `REPORT_NOT_VERIFIED` | The correction is still a draft or was reopened. |
+
 ## Model serving (vLLM + GPU)
 
 The clinical reasoning stages (SOAP extraction, NLI groundedness scoring) call

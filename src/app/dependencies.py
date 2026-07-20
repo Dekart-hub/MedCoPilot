@@ -38,6 +38,7 @@ from soap.providers import (
     get_soap_report_correction_repository as _build_correction_repository,
 )
 from soap.providers import get_soap_report_repository as _build_report_repository
+from soap.quality_use_cases import GetDialogueSoapQuality
 from soap.repository import SoapReportRepository
 from soap.use_cases import ExtractSoapReport
 
@@ -95,6 +96,13 @@ CorrectionRepositoryDep = Annotated[
 ]
 ReportRepositoryDep = Annotated[SoapReportRepository, Depends(get_soap_report_repository)]
 DialogueRepositoryDep = Annotated[DialogueRepository, Depends(get_dialogue_repository)]
+
+
+def get_dialogue_soap_quality(
+    corrections: CorrectionRepositoryDep,
+    reports: ReportRepositoryDep,
+) -> GetDialogueSoapQuality:
+    return GetDialogueSoapQuality(reports, corrections)
 
 
 def get_start_soap_correction(

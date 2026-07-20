@@ -35,8 +35,9 @@ from soap.correction_use_cases import (
     VerifySoapCorrection,
     VerifySoapCorrectionCommand,
 )
+from soap.quality_use_cases import GetDialogueSoapQuality
 from soap.repository import SoapReportRepository
-from soap.serialization import correction_to_dict, report_to_dict
+from soap.serialization import correction_to_dict, quality_to_dict, report_to_dict
 from soap.soap import (
     AssessmentClaim,
     IcdCoding,
@@ -58,6 +59,7 @@ from .dependencies import (
     get_correction_repository,
     get_delete_corrected_note,
     get_dialogue_repository,
+    get_dialogue_soap_quality,
     get_extract_soap_report,
     get_reopen_soap_correction,
     get_soap_report_repository,
@@ -109,6 +111,17 @@ async def get_dialogue(
     if dialogue is None:
         raise HTTPException(status_code=404, detail="dialogue not found")
     return dialogue_to_dict(dialogue)
+
+
+@router.get("/dialogues/{dialogue_id}/quality", tags=["quality"])
+async def get_dialogue_quality(
+    dialogue_id: UUID,
+    quality: Annotated[GetDialogueSoapQuality, Depends(get_dialogue_soap_quality)],
+) -> dict[str, Any]:
+    """Calculate SOAP quality from the dialogue's current verified correction."""
+    dialogue_key: DialogueId = Id(dialogue_id)
+    result = await quality.execute(dialogue_key)
+    return quality_to_dict(result)
 
 
 @router.post("/dialogues/{dialogue_id}/report", tags=["reports"])
