@@ -76,7 +76,9 @@ async def _save_source(dialogue: Dialogue, report: SoapReport) -> None:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         await SqlAlchemyDialogueRepository(session).save(dialogue)
-        await SqlAlchemySoapReportRepository(session).save(report, dialogue_id=dialogue.id)
+        await SqlAlchemySoapReportRepository(session).save(
+            report, dialogue_id=dialogue.id, created_at=_CREATED
+        )
         await session.commit()
 
 

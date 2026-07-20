@@ -34,7 +34,9 @@ class InMemoryReports(SoapReportRepository):
         self.by_dialogue: dict[object, SoapReport] = {}
         self.dialogue_of: dict[object, DialogueId] = {}
 
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None:
         self.by_id[report.id.value] = report
         self.by_dialogue[dialogue_id.value] = report
         self.dialogue_of[report.id.value] = dialogue_id
@@ -87,7 +89,7 @@ def _use_case(
 ) -> GetDialogueSoapQuality:
     reports = InMemoryReports()
     corrections = InMemoryCorrections()
-    _run(reports.save(report, dialogue_id=dialogue_id))
+    _run(reports.save(report, dialogue_id=dialogue_id, created_at=datetime.now(UTC)))
     if with_correction:
         correction = SoapReportCorrection.start(report, created_at=_NOW)
         correction.notes[0].subjective[0].text = "gain"

@@ -9,6 +9,7 @@ extract use case.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from dialogue.dialogue import DialogueId
 
@@ -19,8 +20,10 @@ class SoapReportRepository(ABC):
     """Stores and retrieves :class:`~soap.soap.SoapReport` aggregates."""
 
     @abstractmethod
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
-        """Persist the report, linked to the dialogue it was extracted from."""
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None:
+        """Persist the report, linked to its dialogue and stamped with ``created_at``."""
 
     @abstractmethod
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
