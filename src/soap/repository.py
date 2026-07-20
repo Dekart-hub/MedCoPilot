@@ -9,11 +9,25 @@ extract use case.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 
 from dialogue.dialogue import DialogueId
 
 from .soap import SoapReport, SoapReportId
+
+
+@dataclass(frozen=True, slots=True)
+class ReportSummary:
+    """A report reduced to what a list view needs: no notes or claims loaded.
+
+    Backs ``GET /reports`` so the picker can page over encounters cheaply
+    without materializing every aggregate.
+    """
+
+    report_id: SoapReportId
+    dialogue_id: DialogueId
+    created_at: datetime
 
 
 class SoapReportRepository(ABC):
@@ -24,6 +38,10 @@ class SoapReportRepository(ABC):
         self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
     ) -> None:
         """Persist the report, linked to its dialogue and stamped with ``created_at``."""
+
+    @abstractmethod
+    async def list_summaries(self) -> list[ReportSummary]:
+        """Return every report as a summary, newest first (by ``created_at``)."""
 
     @abstractmethod
     async def get(self, report_id: SoapReportId) -> SoapReport | None:

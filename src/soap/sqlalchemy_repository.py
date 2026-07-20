@@ -18,7 +18,7 @@ from dialogue.dialogue import DialogueId, DialogueTurnId
 from shared.value_objects import Id
 
 from .orm import SoapClaimRow, SoapNoteRow, SoapReportRow
-from .repository import SoapReportRepository
+from .repository import ReportSummary, SoapReportRepository
 from .soap import (
     AssessmentClaim,
     IcdCoding,
@@ -46,6 +46,16 @@ class SqlAlchemySoapReportRepository(SoapReportRepository):
     async def get_by_dialogue_id(self, dialogue_id: DialogueId) -> SoapReport | None:
         return await self._fetch(SoapReportRow.dialogue_id == dialogue_id.value)
 
+    async def list_summaries(self) -> list[ReportSummary]:
+        statement = select(
+            SoapReportRow.id, SoapReportRow.dialogue_id, SoapReportRow.created_at
+        ).order_by(SoapReportRow.created_at.desc(), SoapReportRow.id)
+        rows = (await self._session.execute(statement)).all()
+        return [
+            _to_summary(report_id, dialogue_id, created_at)
+            for report_id, dialogue_id, created_at in rows
+        ]
+
     async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
         statement = select(SoapReportRow.dialogue_id).where(SoapReportRow.id == report_id.value)
         raw = (await self._session.execute(statement)).scalar_one_or_none()
@@ -62,6 +72,12 @@ class SqlAlchemySoapReportRepository(SoapReportRepository):
         )
         row = (await self._session.execute(statement)).scalar_one_or_none()
         return _to_domain(row) if row is not None else None
+
+
+def _to_summary(report_id: UUID, dialogue_id: UUID, created_at: datetime) -> ReportSummary:
+    report_key: SoapReportId = Id(report_id)
+    dialogue_key: DialogueId = Id(dialogue_id)
+    return ReportSummary(report_id=report_key, dialogue_id=dialogue_key, created_at=created_at)
 
 
 def _to_row(report: SoapReport, dialogue_id: DialogueId, created_at: datetime) -> SoapReportRow:

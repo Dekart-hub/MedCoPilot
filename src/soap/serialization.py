@@ -12,6 +12,7 @@ from typing import Any
 
 from .correction import CorrectedNote, SoapReportCorrection
 from .quality_use_cases import DialogueSoapQuality
+from .repository import ReportSummary
 from .soap import (
     AssessmentClaim,
     IcdCoding,
@@ -27,6 +28,15 @@ def report_to_dict(report: SoapReport) -> dict[str, Any]:
     return {
         "id": str(report.id),
         "notes": [_note_to_dict(note) for note in report.notes],
+    }
+
+
+def report_summary_to_dict(summary: ReportSummary) -> dict[str, Any]:
+    """Serialize a report summary for the list view, ``created_at`` as ISO-8601."""
+    return {
+        "report_id": str(summary.report_id),
+        "dialogue_id": str(summary.dialogue_id),
+        "created_at": summary.created_at.isoformat(),
     }
 
 

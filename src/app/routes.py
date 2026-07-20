@@ -37,7 +37,12 @@ from soap.correction_use_cases import (
 )
 from soap.quality_use_cases import GetDialogueSoapQuality
 from soap.repository import SoapReportRepository
-from soap.serialization import correction_to_dict, quality_to_dict, report_to_dict
+from soap.serialization import (
+    correction_to_dict,
+    quality_to_dict,
+    report_summary_to_dict,
+    report_to_dict,
+)
 from soap.soap import (
     AssessmentClaim,
     IcdCoding,
@@ -141,6 +146,15 @@ async def extract_report(
         raise HTTPException(status_code=404, detail="dialogue not found") from exc
     await session.commit()
     return report_to_dict(report)
+
+
+@router.get("/reports", tags=["reports"])
+async def list_reports(
+    reports: Annotated[SoapReportRepository, Depends(get_soap_report_repository)],
+) -> list[dict[str, Any]]:
+    """Return every persisted SOAP report as a summary, newest first."""
+    summaries = await reports.list_summaries()
+    return [report_summary_to_dict(summary) for summary in summaries]
 
 
 @router.get("/reports/{report_id}", tags=["reports"])

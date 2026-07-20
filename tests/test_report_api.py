@@ -9,7 +9,8 @@ idempotency and the 404 paths.
 
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -25,7 +26,7 @@ from dialogue.repository import DialogueRepository
 from infra.db import get_session
 from shared.value_objects import Id
 from soap.extractor import SoapExtractor
-from soap.repository import SoapReportRepository
+from soap.repository import ReportSummary, SoapReportRepository
 from soap.soap import (
     AssessmentClaim,
     IcdCoding,
@@ -63,6 +64,7 @@ class InMemorySoapReportRepository(SoapReportRepository):
         self._by_id: dict[object, SoapReport] = {}
         self._by_dialogue: dict[object, SoapReport] = {}
         self._dialogue_of: dict[object, DialogueId] = {}
+        self._created_at: dict[object, datetime] = {}
 
     async def save(
         self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
@@ -70,6 +72,7 @@ class InMemorySoapReportRepository(SoapReportRepository):
         self._by_id[report.id.value] = report
         self._by_dialogue[dialogue_id.value] = report
         self._dialogue_of[report.id.value] = dialogue_id
+        self._created_at[report.id.value] = created_at
 
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
         return self._by_id.get(report_id.value)
@@ -79,6 +82,17 @@ class InMemorySoapReportRepository(SoapReportRepository):
 
     async def get_dialogue_id(self, report_id: SoapReportId) -> DialogueId | None:
         return self._dialogue_of.get(report_id.value)
+
+    async def list_summaries(self) -> list[ReportSummary]:
+        summaries = [
+            ReportSummary(
+                report_id=report.id,
+                dialogue_id=self._dialogue_of[report.id.value],
+                created_at=self._created_at[report.id.value],
+            )
+            for report in self._by_id.values()
+        ]
+        return sorted(summaries, key=lambda summary: summary.created_at, reverse=True)
 
 
 class StubExtractor(SoapExtractor):
@@ -170,3 +184,53 @@ def test_unknown_report_is_404() -> None:
     response = client.get(f"/reports/{uuid4()}")
 
     assert response.status_code == 404
+
+
+def _client_for(reports: SoapReportRepository) -> TestClient:
+    app = create_app()
+    app.dependency_overrides[get_soap_report_repository] = lambda: reports
+    return TestClient(app)
+
+
+def _seed_report(
+    reports: InMemorySoapReportRepository,
+    *,
+    report_id: SoapReportId,
+    dialogue_id: DialogueId,
+    created_at: datetime,
+) -> None:
+    report = SoapReport(id=report_id)
+    asyncio.run(reports.save(report, dialogue_id=dialogue_id, created_at=created_at))
+
+
+def _july(day: int) -> datetime:
+    return datetime(2026, 7, day, tzinfo=UTC)
+
+
+def test_reports_are_listed_newest_first() -> None:
+    reports = InMemorySoapReportRepository()
+    oldest, middle, newest = Id.new(), Id.new(), Id.new()
+    _seed_report(reports, report_id=oldest, dialogue_id=Id.new(), created_at=_july(18))
+    _seed_report(reports, report_id=middle, dialogue_id=Id.new(), created_at=_july(19))
+    _seed_report(reports, report_id=newest, dialogue_id=Id.new(), created_at=_july(20))
+
+    listing = _client_for(reports).get("/reports").json()
+
+    assert [item["report_id"] for item in listing] == [str(newest), str(middle), str(oldest)]
+
+
+def test_listed_report_carries_id_dialogue_and_created_at() -> None:
+    reports = InMemorySoapReportRepository()
+    report_id, dialogue_id = Id.new(), Id.new()
+    created_at = datetime(2026, 7, 20, 8, 30, tzinfo=UTC)
+    _seed_report(reports, report_id=report_id, dialogue_id=dialogue_id, created_at=created_at)
+
+    listing = _client_for(reports).get("/reports").json()
+
+    assert listing == [
+        {
+            "report_id": str(report_id),
+            "dialogue_id": str(dialogue_id),
+            "created_at": created_at.isoformat(),
+        }
+    ]
