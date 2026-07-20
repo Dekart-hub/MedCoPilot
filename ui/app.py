@@ -6,11 +6,12 @@ A manual, demo-only interface over the REST API. Two tabs:
   ``patient_id``, and see the extracted ``SoapReport``: the four S/O/A/P
   sections, the ICD code on Assessment claims, per-note confidence, and every
   claim linked back to the dialogue turn it cites.
-* **Correction workflow** (story #8) — open the doctor's editable *correction*
-  of a report, then drive the whole lifecycle against the API: edit / add /
-  delete notes, re-code the ICD, verify, and reopen. Each note shows its origin
-  (copied from the original vs doctor-added) and each citation is resolved back
-  to its source turn via ``GET /dialogues/{id}``.
+* **Correction workflow** (story #8) — pick a report from a list (newest
+  first), open its editable *correction*, and drive the whole lifecycle against
+  the API: edit / add / delete notes, re-code the ICD, verify, and reopen. The
+  source dialogue is shown alongside, each note shows its origin (copied from
+  the original vs doctor-added), and every citation is resolved back to its
+  source turn via ``GET /dialogues/{id}``.
 
 This is **out of scope** for the baseline DoD; it is a thin client over the API
 and deliberately kept simple. It talks HTTP only -- it imports nothing from
@@ -77,6 +78,14 @@ def get_dialogue(base_url: str, dialogue_id: str) -> dict[str, Any]:
     response = httpx.get(f"{base_url}/dialogues/{dialogue_id}", timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     result: dict[str, Any] = response.json()
+    return result
+
+
+def list_reports(base_url: str) -> list[dict[str, str]]:
+    """GET ``/reports`` — every report as a summary, already newest-first."""
+    response = httpx.get(f"{base_url}/reports", timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    result: list[dict[str, str]] = response.json()
     return result
 
 
@@ -180,9 +189,7 @@ def describe_http_error(error: httpx.HTTPStatusError) -> str:
     return f"API returned {error.response.status_code}: {prefix}{detail}"
 
 
-def call_api(
-    action: Callable[..., dict[str, Any]], *args: Any, success: str | None = None
-) -> dict[str, Any] | None:
+def call_api[T](action: Callable[..., T], *args: Any, success: str | None = None) -> T | None:
     """Run an API call, surfacing errors as readable messages; ``None`` on failure."""
     try:
         result = action(*args)
@@ -299,7 +306,7 @@ def run_extraction(base_url: str, turns_input: list[dict[str, str]], patient_id:
         st.session_state["extracted_dialogue_id"] = dialogue_id
         st.success(f"Extracted report for dialogue {dialogue_id}")
         render_report(report, turns)
-        st.info("Switch to the **Correction workflow** tab — the ids are pre-filled there.")
+        st.info("Switch to the **Correction workflow** tab — this report is pre-selected there.")
 
 
 def icd_inputs(key: str, icd: dict[str, str] | None) -> dict[str, str] | None:
@@ -499,19 +506,68 @@ def load_correction_context(base_url: str, report_id: str, dialogue_id: str) -> 
     }
 
 
+def report_option_label(summary: dict[str, str]) -> str:
+    """A readable one-line label for a report in the newest-first picker."""
+    created = summary["created_at"].replace("T", " ")
+    return (
+        f"{created} · report {summary['report_id'][:8]}… · dialogue {summary['dialogue_id'][:8]}…"
+    )
+
+
+def default_report_index(summaries: list[dict[str, str]]) -> int:
+    """Preselect the just-extracted report if it is listed, else the newest."""
+    extracted = st.session_state.get("extracted_report_id")
+    for index, summary in enumerate(summaries):
+        if summary["report_id"] == extracted:
+            return index
+    return 0
+
+
+def render_report_picker(base_url: str) -> None:
+    """List reports newest-first and open the chosen one's correction."""
+    summaries = call_api(list_reports, base_url)
+    if summaries is None:
+        return
+    if not summaries:
+        st.info("No reports yet — extract one in the **SOAP extraction** tab first.")
+        return
+    summary = st.selectbox(
+        "Report (newest first)",
+        options=summaries,
+        index=default_report_index(summaries),
+        format_func=report_option_label,
+    )
+    if st.button("Open correction", type="primary"):
+        load_correction_context(base_url, summary["report_id"], summary["dialogue_id"])
+
+
+def render_manual_load(base_url: str) -> None:
+    """Fallback: open a correction by typing its report and dialogue ids."""
+    with st.expander("Load by id (fallback)"):
+        report_id = st.text_input("Report id", key="manual-report-id")
+        dialogue_id = st.text_input("Source dialogue id", key="manual-dialogue-id")
+        if st.button("Load correction", key="manual-load"):
+            if not report_id.strip():
+                st.warning("Enter a report id.")
+            else:
+                load_correction_context(base_url, report_id.strip(), dialogue_id.strip())
+
+
+def render_dialogue(turns: list[dict[str, str]]) -> None:
+    """Show the source dialogue in speaking order so citations are readable."""
+    with st.expander("Source dialogue", expanded=True):
+        if not turns:
+            st.caption("_(no turns loaded)_")
+            return
+        for index, turn in enumerate(turns, start=1):
+            st.markdown(f"**Turn {index} · {turn['speaker']}:** {turn['text']}")
+
+
 def render_correction_tab(base_url: str) -> None:
     """The correction-workflow tab: pick a report, then drive its lifecycle."""
-    st.write("Open a report's correction, then edit → verify → reopen against the API.")
-    report_id = st.text_input("Report id", value=st.session_state.get("extracted_report_id", ""))
-    dialogue_id = st.text_input(
-        "Source dialogue id (resolves citations to turn text)",
-        value=st.session_state.get("extracted_dialogue_id", ""),
-    )
-    if st.button("Load correction", type="primary"):
-        if not report_id.strip():
-            st.warning("Enter a report id.")
-        else:
-            load_correction_context(base_url, report_id.strip(), dialogue_id.strip())
+    st.write("Pick a report below to open its correction, then edit → verify → reopen.")
+    render_report_picker(base_url)
+    render_manual_load(base_url)
 
     ctx = st.session_state.get("corr_ctx")
     if not ctx:
@@ -519,6 +575,7 @@ def render_correction_tab(base_url: str) -> None:
     correction = call_api(get_correction, base_url, ctx["report_id"])
     if correction is None:
         return
+    render_dialogue(ctx["turns"])
     render_correction(base_url, ctx, correction)
 
 

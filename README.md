@@ -62,10 +62,14 @@ variable (default `http://localhost:8000`).
 ### Demo: correction workflow
 
 The **Correction workflow** tab drives the whole doctor-correction lifecycle
-(story #8) against the same API. Extract a report on the first tab and its ids
-carry over pre-filled; or type a `report_id` (and the source `dialogue_id`, used
-to resolve citations) by hand, then **Load correction** — this opens or resumes
-the draft (`POST /reports/{id}/correction`).
+(story #8) against the same API. It lists every report (`GET /reports`) newest
+first — each row shows its `created_at`, short `report_id` and source
+`dialogue_id`, and the report you just extracted is pre-selected. Pick one and
+**Open correction** to open or resume its draft (`POST /reports/{id}/correction`);
+no report id is typed by hand (a **Load by id** expander is kept as a fallback).
+The selected report's **source dialogue** is then shown in speaking order
+(`GET /dialogues/{dialogue_id}`), so the reply text each citation points at sits
+on screen next to the correction.
 
 The screen then shows the correction's **status** (`draft` / `verified`) with the
 `verified_by` / `verified_at` stamp once verified, and for every note its
