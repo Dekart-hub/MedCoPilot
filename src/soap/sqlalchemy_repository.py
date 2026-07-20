@@ -7,6 +7,7 @@ dialogue can share one unit of work.
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -34,8 +35,10 @@ class SqlAlchemySoapReportRepository(SoapReportRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
-        await self._session.merge(_to_row(report, dialogue_id))
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None:
+        await self._session.merge(_to_row(report, dialogue_id, created_at))
 
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
         return await self._fetch(SoapReportRow.id == report_id.value)
@@ -61,10 +64,11 @@ class SqlAlchemySoapReportRepository(SoapReportRepository):
         return _to_domain(row) if row is not None else None
 
 
-def _to_row(report: SoapReport, dialogue_id: DialogueId) -> SoapReportRow:
+def _to_row(report: SoapReport, dialogue_id: DialogueId, created_at: datetime) -> SoapReportRow:
     return SoapReportRow(
         id=report.id.value,
         dialogue_id=dialogue_id.value,
+        created_at=created_at,
         notes=[_note_to_row(note, position) for position, note in enumerate(report.notes)],
     )
 

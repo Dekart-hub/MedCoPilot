@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC, datetime
 
 import pytest
 
@@ -19,6 +20,7 @@ from dialogue.sqlalchemy_repository import SqlAlchemyDialogueRepository
 from infra.db import dispose_engine, get_sessionmaker
 from infra.migrations import run_migrations
 from shared.value_objects import Id
+from soap.orm import SoapReportRow
 from soap.soap import (
     AssessmentClaim,
     IcdCoding,
@@ -33,6 +35,8 @@ pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL"),
     reason="DATABASE_URL not configured; skipping DB integration test",
 )
+
+_CREATED_AT = datetime(2026, 7, 20, 9, 30, tzinfo=UTC)
 
 _ICD = IcdCoding(
     code="I10",
@@ -64,7 +68,9 @@ async def _save_then_get(dialogue: Dialogue, report: SoapReport) -> SoapReport |
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         await SqlAlchemyDialogueRepository(session).save(dialogue)
-        await SqlAlchemySoapReportRepository(session).save(report, dialogue_id=dialogue.id)
+        await SqlAlchemySoapReportRepository(session).save(
+            report, dialogue_id=dialogue.id, created_at=_CREATED_AT
+        )
         await session.commit()
     async with sessionmaker() as session:
         loaded = await SqlAlchemySoapReportRepository(session).get(report.id)
@@ -101,7 +107,9 @@ def test_get_by_dialogue_id_reads_the_persisted_report() -> None:
         sessionmaker = get_sessionmaker()
         async with sessionmaker() as session:
             await SqlAlchemyDialogueRepository(session).save(dialogue)
-            await SqlAlchemySoapReportRepository(session).save(report, dialogue_id=dialogue.id)
+            await SqlAlchemySoapReportRepository(session).save(
+                report, dialogue_id=dialogue.id, created_at=_CREATED_AT
+            )
             await session.commit()
         async with sessionmaker() as session:
             loaded = await SqlAlchemySoapReportRepository(session).get_by_dialogue_id(dialogue.id)
@@ -112,3 +120,26 @@ def test_get_by_dialogue_id_reads_the_persisted_report() -> None:
 
     assert loaded is not None
     assert loaded.id == report.id
+
+
+def test_created_at_is_persisted_and_read_back() -> None:
+    run_migrations()
+    dialogue, report = _dialogue_and_report()
+
+    async def _save_then_read_created_at() -> datetime | None:
+        sessionmaker = get_sessionmaker()
+        async with sessionmaker() as session:
+            await SqlAlchemyDialogueRepository(session).save(dialogue)
+            await SqlAlchemySoapReportRepository(session).save(
+                report, dialogue_id=dialogue.id, created_at=_CREATED_AT
+            )
+            await session.commit()
+        async with sessionmaker() as session:
+            stored = await session.get(SoapReportRow, report.id.value)
+            value = stored.created_at if stored is not None else None
+        await dispose_engine()
+        return value
+
+    loaded = asyncio.run(_save_then_read_created_at())
+
+    assert loaded == _CREATED_AT

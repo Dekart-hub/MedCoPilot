@@ -14,10 +14,12 @@ four lists can be rebuilt on load.
 
 from __future__ import annotations
 
+import datetime
 import uuid
 
 from sqlalchemy import (
     JSON,
+    DateTime,
     ForeignKey,
     String,
     Text,
@@ -34,6 +36,7 @@ class SoapReportRow(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     dialogue_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("dialogue.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
     notes: Mapped[list[SoapNoteRow]] = relationship(
         back_populates="report",
         cascade="all, delete-orphan",

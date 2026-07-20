@@ -101,7 +101,9 @@ class InMemorySoapReportRepository(SoapReportRepository):
         self._by_dialogue: dict[object, SoapReport] = {}
         self._dialogue_of: dict[object, DialogueId] = {}
 
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None:
         self._by_id[report.id.value] = report
         self._by_dialogue[dialogue_id.value] = report
         self._dialogue_of[report.id.value] = dialogue_id
@@ -192,7 +194,7 @@ def _env() -> Env:
     dialogues = InMemoryDialogueRepository()
     reports = InMemorySoapReportRepository()
     _run(dialogues.save(dialogue))
-    _run(reports.save(report, dialogue_id=dialogue.id))
+    _run(reports.save(report, dialogue_id=dialogue.id, created_at=datetime.now(UTC)))
     return Env(FakeSession(), dialogues, reports, InMemoryCorrectionRepository(), dialogue, report)
 
 

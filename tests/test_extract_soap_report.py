@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable
+from datetime import datetime
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -93,11 +94,15 @@ class InMemorySoapReportRepository(SoapReportRepository):
         self._by_id: dict[object, SoapReport] = {}
         self._by_dialogue: dict[object, SoapReport] = {}
         self._dialogue_of: dict[object, DialogueId] = {}
+        self.created_at: dict[object, datetime] = {}
 
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None:
         self._by_id[report.id.value] = report
         self._by_dialogue[dialogue_id.value] = report
         self._dialogue_of[report.id.value] = dialogue_id
+        self.created_at[report.id.value] = created_at
 
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
         return self._by_id.get(report_id.value)
@@ -170,6 +175,19 @@ def test_second_extraction_reuses_the_stored_report() -> None:
     assert extractor.calls == 1  # the extractor is not called a second time
 
 
+def test_second_extraction_keeps_the_original_created_at() -> None:
+    dialogue = _dialogue()
+    reports = InMemorySoapReportRepository()
+    use_case, _, _ = _use_case(dialogue, reports=reports)
+    command = ExtractSoapReportCommand(dialogue_id=dialogue.id)
+
+    first = _run(use_case.execute(command))
+    stamped = reports.created_at[first.id.value]
+    _run(use_case.execute(command))
+
+    assert reports.created_at[first.id.value] == stamped  # [#88/FR-1] never re-stamped
+
+
 def test_patient_id_resolves_ehr_context_into_the_extractor() -> None:
     dialogue = _dialogue()
     ehr = MockEhrClient({"p1": "45yo, hypertension on lisinopril"})
@@ -196,7 +214,9 @@ class RacingReports(SoapReportRepository):
         self._winner = winner
         self._probes = 0
 
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None: ...
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None: ...
 
     async def get(self, report_id: SoapReportId) -> SoapReport | None:
         return self._winner

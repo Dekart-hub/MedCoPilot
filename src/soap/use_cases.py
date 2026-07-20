@@ -10,6 +10,7 @@ the winner persisted.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,10 @@ from ehr.client import EhrClient
 from .extractor import SoapExtractor
 from .repository import SoapReportRepository
 from .soap import SoapReport
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 class DialogueNotFoundError(Exception):
@@ -77,7 +82,7 @@ class ExtractSoapReport:
         # guard, rather than later in the caller's commit; the caller still owns
         # the commit.
         try:
-            await self._reports.save(report, dialogue_id=dialogue_id)
+            await self._reports.save(report, dialogue_id=dialogue_id, created_at=_now())
             await self._session.flush()
         except IntegrityError:
             await self._session.rollback()

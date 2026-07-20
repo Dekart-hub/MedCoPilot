@@ -10,6 +10,7 @@ invariant, and every error category (404 / 409 / 422).
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -68,7 +69,9 @@ class InMemorySoapReportRepository(SoapReportRepository):
         self._by_dialogue: dict[object, SoapReport] = {}
         self._dialogue_of: dict[object, DialogueId] = {}
 
-    async def save(self, report: SoapReport, *, dialogue_id: DialogueId) -> None:
+    async def save(
+        self, report: SoapReport, *, dialogue_id: DialogueId, created_at: datetime
+    ) -> None:
         self._by_id[report.id.value] = report
         self._by_dialogue[dialogue_id.value] = report
         self._dialogue_of[report.id.value] = dialogue_id
