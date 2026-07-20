@@ -1,4 +1,4 @@
-"""HTTP error mapping for the SOAP-correction workflow.
+"""HTTP error mapping for SOAP correction and online-quality workflows.
 
 Each domain and use-case error is translated into a stable JSON body
 ``{"code": ..., "detail": ...}`` with a machine-readable ``code`` and the right
@@ -25,6 +25,11 @@ from soap.correction_use_cases import (
     CorrectionNotFoundError,
     SourceReportNotFoundError,
 )
+from soap.quality import CorrectionNotVerifiedError
+from soap.quality_use_cases import (
+    DialogueReportNotFoundError,
+    QualityCorrectionNotFoundError,
+)
 
 Handler = Callable[[Request, Exception], Awaitable[JSONResponse]]
 
@@ -38,6 +43,9 @@ class CorrectionForReportNotFound(Exception):
 
 
 _ERROR_MAP: list[tuple[type[Exception], int, str]] = [
+    (DialogueReportNotFoundError, 404, "report_not_found"),
+    (QualityCorrectionNotFoundError, 404, "correction_not_found"),
+    (CorrectionNotVerifiedError, 409, "REPORT_NOT_VERIFIED"),
     (SourceReportNotFoundError, 404, "report_not_found"),
     (CorrectionForReportNotFound, 404, "correction_not_found"),
     (CorrectionNotFoundError, 404, "correction_not_found"),
@@ -57,6 +65,6 @@ def _handler(status_code: int, code: str) -> Handler:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Map every correction error type to its status and stable ``code``."""
+    """Map workflow error types to their statuses and stable machine codes."""
     for exc_type, status_code, code in _ERROR_MAP:
         app.add_exception_handler(exc_type, _handler(status_code, code))

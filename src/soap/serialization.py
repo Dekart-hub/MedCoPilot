@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from .correction import CorrectedNote, SoapReportCorrection
+from .quality_use_cases import DialogueSoapQuality
 from .soap import (
     AssessmentClaim,
     IcdCoding,
@@ -38,6 +39,28 @@ def correction_to_dict(correction: SoapReportCorrection) -> dict[str, Any]:
         "verified_by": correction.verified_by,
         "verified_at": _iso(correction.verified_at),
         "notes": [_corrected_note_to_dict(note) for note in correction.notes],
+    }
+
+
+def quality_to_dict(quality: DialogueSoapQuality) -> dict[str, Any]:
+    """Serialize dialogue-level online SOAP quality to the REST response shape."""
+    return {
+        "dialogue_id": str(quality.dialogue_id),
+        "report_id": str(quality.report_id),
+        "correction_id": str(quality.correction_id),
+        "notes_added": quality.notes_added,
+        "notes_removed": quality.notes_removed,
+        "changed_characters": quality.changed_characters,
+        "diagnosis_changes": quality.diagnosis_changes,
+        "note_diffs": [
+            {
+                "source_note_id": str(note.source_note_id),
+                "corrected_note_id": str(note.corrected_note_id),
+                "changed_characters": note.changed_characters,
+                "diagnosis_changed": note.diagnosis_changed,
+            }
+            for note in quality.note_diffs
+        ],
     }
 
 
