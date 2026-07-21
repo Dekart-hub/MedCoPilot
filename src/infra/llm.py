@@ -20,10 +20,13 @@ from openai.types.chat import (
 )
 
 from config.settings import Settings
+from ehr.client import EhrClient
 from icd.coder import IcdCoder
+from infra.ehr import build_ehr_client
 from infra.nli import build_nli_confidence_scorer
 from infra.vllm.deployment import MEDGEMMA_4B
 from soap.llm_client import LlmClient
+from soap.llm_editor import SoapEditAgent
 from soap.llm_extractor import LlmSoapExtractor
 from soap.scorer import ConfidenceScorer, NullConfidenceScorer
 
@@ -70,6 +73,20 @@ def build_llm_client(settings: Settings) -> OpenAiLlmClient:
         api_key=settings.vllm_api_key or "not-needed",
     )
     return OpenAiLlmClient(client, settings.model_id or MEDGEMMA_4B.model_id)
+
+
+def build_soap_edit_agent(settings: Settings, ehr: EhrClient | None = None) -> SoapEditAgent:
+    """Wire the LLM client and EHR into a SOAP edit agent (story #12).
+
+    ``ehr`` is opt-in: an explicit client wins, otherwise the settings-driven
+    mock (bundled fixture by default) is used. The ``model_id`` handed to the
+    agent as generation metadata matches the one the LLM client actually calls.
+    """
+    return SoapEditAgent(
+        build_llm_client(settings),
+        ehr or build_ehr_client(settings),
+        model_id=settings.model_id or MEDGEMMA_4B.model_id,
+    )
 
 
 def build_llm_extractor(
