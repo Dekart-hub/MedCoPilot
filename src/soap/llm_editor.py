@@ -158,6 +158,7 @@ class SoapEditAgent:
         max_history_turns: int = 5,
         max_history_chars: int = 4000,
         request_timeout: float = 60.0,
+        max_attempts: int = 3,
     ) -> None:
         self._client = client
         self._ehr = ehr
@@ -168,14 +169,21 @@ class SoapEditAgent:
         self._max_history_turns = max_history_turns
         self._max_history_chars = max_history_chars
         self._request_timeout = request_timeout
+        self._max_attempts = max(1, max_attempts)
 
     async def propose(self, context: EditContext, *, user_request: str) -> ProposalDraft:
-        """Generate and validate a proposal draft; never touch the correction."""
+        """Generate and validate a proposal draft; never touch the correction.
+
+        A small model sometimes emits an out-of-range note/turn index; with a
+        non-zero sampling temperature, re-generating a few times usually lands a
+        valid proposal, so a single flaky reject does not fail the whole request.
+        The proposal invariant is unchanged — an invalid draft is still never
+        applied; we only resample before giving up (then surface the reject).
+        """
         self._guard_session(context)
         patient_context = await self._ehr.get_patient_context(context.patient_id)
         prompt = self._build_prompt(context, patient_context, user_request)
-        draft = await self._generate(prompt)
-        operations = self._validate(draft, context)
+        operations = await self._generate_valid(prompt, context)
         _LOG.info(
             "soap.edit.proposed",
             correction_id=str(context.correction.id),
@@ -191,6 +199,17 @@ class SoapEditAgent:
             prompt_version=self._prompt_version,
             operations=operations,
         )
+
+    async def _generate_valid(self, prompt: str, context: EditContext) -> list[OperationSpec]:
+        last: InvalidProposalError | None = None
+        for attempt in range(self._max_attempts):
+            try:
+                return self._validate(await self._generate(prompt), context)
+            except InvalidProposalError as exc:
+                last = exc
+                _LOG.warning("soap.edit.retry", attempt=attempt + 1, reason=exc.reason)
+        assert last is not None  # the loop ran at least once and every try re-raised
+        raise last
 
     async def _generate(self, prompt: str) -> _ProposalOut:
         try:
@@ -399,7 +418,8 @@ _EDIT_INSTRUCTIONS = (
     "that satisfies the request.\n"
     "Rules: use only add_note, update_note and delete_note. Reference an existing "
     "note by the [N] shown in the current notes; cite every statement to the "
-    "dialogue turn [N] it rests on. update_note REPLACES the whole note with the "
+    "dialogue turn [N] it rests on, using only a turn number shown in the dialogue "
+    "above. update_note REPLACES the whole note with the "
     "content you return: to keep existing subjective/objective/assessment/plan "
     "statements, copy them verbatim and add or change only what the request asks — "
     "anything you omit is deleted. Propose no ICD codes — that is not yours to "
