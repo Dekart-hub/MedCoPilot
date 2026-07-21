@@ -58,11 +58,18 @@ class FakeLlmClient(LlmClient):
     """Mock LLM: returns a canned payload and records the last call's prompt."""
 
     def __init__(
-        self, payload: dict[str, Any], *, fail: bool = False, error: Exception | None = None
+        self,
+        payload: dict[str, Any],
+        *,
+        fail: bool = False,
+        error: Exception | None = None,
+        payloads: list[dict[str, Any]] | None = None,
     ) -> None:
         self._payload = payload
         self._fail = fail
         self._error = error
+        self._payloads = payloads
+        self.calls = 0
         self.instructions: str | None = None
         self.prompt: str | None = None
         self.schema: dict[str, Any] | None = None
@@ -73,10 +80,13 @@ class FakeLlmClient(LlmClient):
         self.instructions = instructions
         self.prompt = prompt
         self.schema = schema
+        self.calls += 1
         if self._error is not None:
             raise self._error
         if self._fail:
             raise TimeoutError("model unavailable")
+        if self._payloads is not None:
+            return self._payloads[min(self.calls - 1, len(self._payloads) - 1)]
         return self._payload
 
 
@@ -248,6 +258,30 @@ def test_transport_failure_surfaces_as_soap_edit_error() -> None:
     with pytest.raises(SoapEditError) as excinfo:
         _propose(_agent(client), _context(report, correction, session))
     assert not isinstance(excinfo.value, InvalidProposalError)
+
+
+def test_propose_resamples_past_a_transient_invalid_output() -> None:
+    # A small model can emit an out-of-range target on one sample; the agent
+    # re-generates and uses the next valid proposal instead of failing outright.
+    report, correction, session = _fixtures()
+    invalid = _payload(_update(99, _content(subjective=[_claim_out("x", turn_index=1)])))
+    valid = _payload(_add(_content(plan=[_claim_out("Return if it worsens.", turn_index=1)])))
+    client = FakeLlmClient(valid, payloads=[invalid, valid])
+
+    draft = _propose(_agent(client), _context(report, correction, session))
+
+    assert client.calls == 2  # first (invalid) resampled, second (valid) accepted
+    assert len(draft.operations) == 1
+
+
+def test_propose_gives_up_after_max_attempts_of_invalid_output() -> None:
+    report, correction, session = _fixtures()
+    invalid = _payload(_update(99, _content(subjective=[_claim_out("x", turn_index=1)])))
+    client = FakeLlmClient(invalid)  # every sample is invalid
+
+    with pytest.raises(InvalidProposalError):
+        _propose(_agent(client, max_attempts=2), _context(report, correction, session))
+    assert client.calls == 2  # bounded, not infinite
 
 
 def test_two_operations_on_the_same_note_are_rejected() -> None:

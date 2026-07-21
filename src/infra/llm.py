@@ -64,7 +64,7 @@ class OpenAiLlmClient(LlmClient):
         return parsed
 
 
-def build_llm_client(settings: Settings) -> OpenAiLlmClient:
+def build_llm_client(settings: Settings, *, temperature: float = 0.0) -> OpenAiLlmClient:
     """Construct an :class:`OpenAiLlmClient` from settings, with vLLM defaults."""
     client = AsyncOpenAI(
         base_url=settings.vllm_base_url or MEDGEMMA_4B.base_url(),
@@ -72,7 +72,9 @@ def build_llm_client(settings: Settings) -> OpenAiLlmClient:
         # keeps the OpenAI client, which requires a non-empty value, happy.
         api_key=settings.vllm_api_key or "not-needed",
     )
-    return OpenAiLlmClient(client, settings.model_id or MEDGEMMA_4B.model_id)
+    return OpenAiLlmClient(
+        client, settings.model_id or MEDGEMMA_4B.model_id, temperature=temperature
+    )
 
 
 def build_soap_edit_agent(settings: Settings, ehr: EhrClient | None = None) -> SoapEditAgent:
@@ -82,8 +84,11 @@ def build_soap_edit_agent(settings: Settings, ehr: EhrClient | None = None) -> S
     mock (bundled fixture by default) is used. The ``model_id`` handed to the
     agent as generation metadata matches the one the LLM client actually calls.
     """
+    # A small sampling temperature lets propose() resample a fresh proposal when a
+    # small model emits an out-of-range note/turn index, instead of deterministically
+    # repeating the same invalid draft.
     return SoapEditAgent(
-        build_llm_client(settings),
+        build_llm_client(settings, temperature=0.4),
         ehr or build_ehr_client(settings),
         model_id=settings.model_id or MEDGEMMA_4B.model_id,
     )
