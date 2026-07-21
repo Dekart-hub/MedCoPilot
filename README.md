@@ -189,6 +189,90 @@ machine-readable `code`:
 | 422 | `empty_doctor_id` | `verify` was called without a non-blank `doctor_id`. |
 | 422 | `duplicate_source_note` | Two corrected notes claim the same source note. |
 
+## LLM SOAP editor (story #12)
+
+A doctor can ask an LLM to amend the correction. The model never edits the
+correction directly: a request becomes a **proposal** — an ordered list of note
+operations (`add_note` / `update_note` / `delete_note`), each decided on its own.
+Nothing is applied until the doctor accepts an operation; an accepted operation
+is applied **through the same #8 correction domain** (so `revision` bumps exactly
+as a manual edit would) while a rejected one leaves the correction untouched. The
+full trace — every proposal, operation, decision, before-snapshot and proposed
+content, with model/prompt version and timestamps — is persisted as the durable
+log that both this online metric and the future offline miner read.
+
+| Method + path | Purpose |
+|---|---|
+| `POST /reports/{id}/correction/editor/proposals` | Draft a proposal from `{user_request, patient_id}`; persist PENDING ops, apply nothing. |
+| `GET /reports/{id}/correction/editor/proposals` | Return the active proposal (else the most recent), each op with its before/proposed diff and decision. |
+| `POST …/proposals/{proposal_id}/operations/{operation_id}/accept` | Accept one op and apply it to the correction. |
+| `POST …/proposals/{proposal_id}/operations/{operation_id}/reject` | Reject one op; the correction is unchanged. |
+| `GET /reports/{id}/correction/editor/metric` | Operation-level acceptance metric (optional `since`/`until`). |
+
+Rules enforced across the flow:
+
+- **ICD never travels through a proposal.** An accepted `update_note` replaces the
+  note's S/O/A/P text but preserves the existing note's ICD codings (carried over
+  by assessment position) — an LLM can neither set nor clear an ICD.
+- **Pending operations block `verify`** (`409 pending_operations_block_verify`).
+- **One active proposal at a time:** a new proposal is refused until every
+  operation of the current one is decided (`409 active_proposal_exists`).
+- **Decisions are idempotent;** the opposite verdict on a decided op conflicts
+  (`409 conflicting_decision`).
+- **A doctor's manual edit** (`PUT/POST/DELETE …/correction/notes…`) auto-rejects
+  the active proposal's still-pending operations with reason `doctor_edit`. This
+  is a recorded side effect that stays in the durable log and counts toward the
+  metric; `verify`/`reopen` do not auto-reject.
+
+### Request examples
+
+```bash
+# 1. draft a proposal (nothing is applied yet)
+curl -X POST http://localhost:8000/reports/$REPORT_ID/correction/editor/proposals \
+  -H 'Content-Type: application/json' \
+  -d '{"user_request": "Tighten the assessment and drop the fatigue note.", "patient_id": "P001"}'
+
+# 2. review the operations with their before/proposed diff
+curl http://localhost:8000/reports/$REPORT_ID/correction/editor/proposals
+
+# 3. accept one operation, reject another (mixed)
+curl -X POST http://localhost:8000/reports/$REPORT_ID/correction/editor/proposals/$PID/operations/$OP_A/accept
+curl -X POST http://localhost:8000/reports/$REPORT_ID/correction/editor/proposals/$PID/operations/$OP_B/reject
+
+# 4. read the acceptance metric (optionally windowed by proposal-creation time)
+curl "http://localhost:8000/reports/$REPORT_ID/correction/editor/metric?since=2026-07-01T00:00:00Z"
+```
+
+### Acceptance metric semantics
+
+Computed at the **operation** level (never proposal level) from the durable log:
+
+| Field | Meaning |
+|---|---|
+| `proposed` / `accepted` / `rejected` / `pending` | Operation counts in range. |
+| `acceptance_rate` | `accepted / (accepted + rejected)` — decided ops only; **`null`** when there are no decisions yet. |
+| `breakdown` | The same counts sliced by `(model_id, prompt_version)`. |
+| `since` / `until` | The applied time window (filters by each proposal's creation time). |
+
+Auto-rejects from doctor edits count as `rejected`, so the rate reflects how often
+the LLM's still-pending suggestions were superseded by hand.
+
+### Errors
+
+Editor errors use the same stable `{"code": "...", "detail": "..."}` body:
+
+| Status | `code` | Cause |
+|---|---|---|
+| 404 | `correction_not_found` | The report has no correction to edit. |
+| 404 | `proposal_not_found` | No editor session/proposal for the correction. |
+| 404 | `operation_not_found` | The operation id is not in the proposal. |
+| 409 | `active_proposal_exists` | A proposal with pending operations already exists. |
+| 409 | `correction_not_proposable` | The correction is verified (reopen it first). |
+| 409 | `stale_operation_target` | The target note changed since the proposal was formed. |
+| 409 | `conflicting_decision` | A decided operation was flipped to the opposite verdict. |
+| 409 | `pending_operations_block_verify` | `verify` while an operation is still undecided. |
+| 422 | `invalid_generated_content` | The model's proposal failed validation. |
+
 ## Online SOAP quality (story #10)
 
 `GET /dialogues/{dialogue_id}/quality` calculates extraction quality against the

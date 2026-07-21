@@ -13,6 +13,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.dependencies import (
+    get_correction_editor_session_repository,
     get_correction_repository,
     get_dialogue_repository,
     get_soap_extractor,
@@ -26,6 +27,8 @@ from shared.value_objects import Id
 from soap.correction import CorrectionId, SoapReportCorrection
 from soap.correction_repository import SoapReportCorrectionRepository
 from soap.extractor import SoapExtractor
+from soap.proposal import CorrectionEditorSession, SessionId
+from soap.proposal_repository import CorrectionEditorSessionRepository
 from soap.repository import ReportSummary, SoapReportRepository
 from soap.soap import (
     AssessmentClaim,
@@ -116,6 +119,24 @@ class InMemoryCorrections(SoapReportCorrectionRepository):
         return self.by_source.get(report_id.value)
 
 
+class InMemoryEditorSessions(CorrectionEditorSessionRepository):
+    def __init__(self) -> None:
+        self.by_id: dict[object, CorrectionEditorSession] = {}
+        self.by_correction: dict[object, CorrectionEditorSession] = {}
+
+    async def save(self, session: CorrectionEditorSession) -> None:
+        self.by_id[session.id.value] = session
+        self.by_correction[session.correction_id.value] = session
+
+    async def get(self, session_id: SessionId) -> CorrectionEditorSession | None:
+        return self.by_id.get(session_id.value)
+
+    async def get_for_correction(
+        self, correction_id: CorrectionId
+    ) -> CorrectionEditorSession | None:
+        return self.by_correction.get(correction_id.value)
+
+
 class TwoNoteExtractor(SoapExtractor):
     async def extract(self, dialogue: Dialogue, patient_context: str) -> SoapReport:
         citation = TurnCitation(turn_id=dialogue.turns[0].id, quote="pain")
@@ -151,6 +172,9 @@ def _client() -> TestClient:
     app.dependency_overrides[get_dialogue_repository] = lambda: dialogues
     app.dependency_overrides[get_soap_report_repository] = lambda: reports
     app.dependency_overrides[get_correction_repository] = lambda: corrections
+    app.dependency_overrides[get_correction_editor_session_repository] = lambda: (
+        InMemoryEditorSessions()
+    )
     app.dependency_overrides[get_soap_extractor] = lambda: TwoNoteExtractor()
     return TestClient(app)
 

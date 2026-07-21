@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Any
 
 from .correction import CorrectedNote, SoapReportCorrection
+from .editor_use_cases import AcceptanceMetric, OperationCounts
+from .proposal import CorrectionProposal, ProposalOperation, ProposedNote
 from .quality_use_cases import DialogueSoapQuality
 from .repository import ReportSummary
 from .soap import (
@@ -19,6 +21,7 @@ from .soap import (
     SoapClaim,
     SoapNote,
     SoapReport,
+    SoapSection,
     TurnCitation,
 )
 
@@ -71,6 +74,86 @@ def quality_to_dict(quality: DialogueSoapQuality) -> dict[str, Any]:
             }
             for note in quality.note_diffs
         ],
+    }
+
+
+def proposal_to_dict(proposal: CorrectionProposal) -> dict[str, Any]:
+    """Serialize a proposal with each operation's decision and before/proposed diff."""
+    return {
+        "id": str(proposal.id),
+        "user_request": proposal.user_request,
+        "status": proposal.status().value,
+        "base_correction_revision": proposal.base_correction_revision,
+        "model_id": proposal.model_id,
+        "prompt_version": proposal.prompt_version,
+        "created_at": proposal.created_at.isoformat(),
+        "updated_at": proposal.updated_at.isoformat(),
+        "operations": [_operation_to_dict(operation) for operation in proposal.operations],
+    }
+
+
+def acceptance_metric_to_dict(metric: AcceptanceMetric) -> dict[str, Any]:
+    """Serialize the online acceptance metric, ``acceptance_rate`` null when undecided."""
+    return {
+        "correction_id": str(metric.correction_id),
+        "since": _iso(metric.since),
+        "until": _iso(metric.until),
+        **_counts_to_dict(metric.counts),
+        "breakdown": [
+            {
+                "model_id": slice_.model_id,
+                "prompt_version": slice_.prompt_version,
+                **_counts_to_dict(slice_.counts),
+            }
+            for slice_ in metric.breakdown
+        ],
+    }
+
+
+def _operation_to_dict(operation: ProposalOperation) -> dict[str, Any]:
+    return {
+        "id": str(operation.id),
+        "type": operation.type.value,
+        "decision": operation.decision.value,
+        "decision_reason": operation.decision_reason,
+        "decided_at": _iso(operation.decided_at),
+        "target_note_id": str(operation.target_note_id)
+        if operation.target_note_id is not None
+        else None,
+        "before": _corrected_note_to_dict(operation.before)
+        if operation.before is not None
+        else None,
+        "proposed": _proposed_note_to_dict(operation.proposed)
+        if operation.proposed is not None
+        else None,
+    }
+
+
+def _proposed_note_to_dict(note: ProposedNote) -> dict[str, Any]:
+    sections = {
+        SoapSection.SUBJECTIVE.value: note.subjective,
+        SoapSection.OBJECTIVE.value: note.objective,
+        SoapSection.ASSESSMENT.value: note.assessment,
+        SoapSection.PLAN.value: note.plan,
+    }
+    return {
+        "sections": {
+            section: [
+                {"text": claim.text, "citations": [_citation_to_dict(c) for c in claim.citations]}
+                for claim in claims
+            ]
+            for section, claims in sections.items()
+        }
+    }
+
+
+def _counts_to_dict(counts: OperationCounts) -> dict[str, Any]:
+    return {
+        "proposed": counts.proposed,
+        "accepted": counts.accepted,
+        "rejected": counts.rejected,
+        "pending": counts.pending,
+        "acceptance_rate": counts.acceptance_rate,
     }
 
 
