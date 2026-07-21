@@ -169,6 +169,23 @@ def test_reopening_restores_editability() -> None:
     assert added in correction.notes
 
 
+def test_revision_starts_at_one() -> None:
+    correction = SoapReportCorrection.start(_source_report(), created_at=_CREATED)
+
+    assert correction.revision == 1
+
+
+def test_each_content_mutation_increments_the_revision() -> None:
+    correction = SoapReportCorrection.start(_source_report(), created_at=_CREATED)
+    note_id = correction.notes[0].id
+
+    correction.add_note(at=_LATER, subjective=[_claim("New finding.")])
+    correction.update_note(note_id, at=_LATER, plan=[_claim("Start amlodipine.")])
+    correction.delete_note(note_id, at=_LATER)
+
+    assert correction.revision == 4
+
+
 def test_a_source_note_may_appear_at_most_once() -> None:
     shared_source: SoapNoteId = Id.new()
 

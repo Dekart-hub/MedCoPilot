@@ -93,7 +93,13 @@ class CorrectedNote(Entity[SoapNoteId]):
 
 @dataclass(eq=False, slots=True)
 class SoapReportCorrection(Entity[CorrectionId]):
-    """The doctor's editable version of a source report, with lineage preserved."""
+    """The doctor's editable version of a source report, with lineage preserved.
+
+    ``revision`` is a monotonically increasing counter bumped on every content
+    mutation (add / update / delete). LLM editor proposals (#12) capture it as
+    the base they were formed against, so a later edit makes stale proposals
+    detectable.
+    """
 
     id: CorrectionId
     source_report_id: SoapReportId
@@ -103,6 +109,7 @@ class SoapReportCorrection(Entity[CorrectionId]):
     notes: list[CorrectedNote] = field(default_factory=list)
     verified_by: str | None = None
     verified_at: datetime | None = None
+    revision: int = 1
 
     def __post_init__(self) -> None:
         self._guard_unique_sources()
@@ -139,7 +146,7 @@ class SoapReportCorrection(Entity[CorrectionId]):
             plan=list(plan or []),
         )
         self.notes.append(note)
-        self.updated_at = at
+        self._record_edit(at)
         return note
 
     def update_note(
@@ -159,14 +166,14 @@ class SoapReportCorrection(Entity[CorrectionId]):
         note.objective = list(objective or [])
         note.assessment = list(assessment or [])
         note.plan = list(plan or [])
-        self.updated_at = at
+        self._record_edit(at)
         return note
 
     def delete_note(self, note_id: SoapNoteId, *, at: datetime) -> None:
         """Drop a note from the doctor's version; allowed in DRAFT only."""
         self.ensure_editable()
         self.notes.remove(self._note(note_id))
-        self.updated_at = at
+        self._record_edit(at)
 
     def verify(self, doctor_id: str, *, at: datetime) -> None:
         """Move DRAFT → VERIFIED, stamping the checking doctor and the time."""
@@ -188,6 +195,15 @@ class SoapReportCorrection(Entity[CorrectionId]):
         """Guard: a verified correction rejects any edit until it is reopened."""
         if self.status is CorrectionStatus.VERIFIED:
             raise CorrectionNotEditable("a verified correction must be reopened before editing")
+
+    def find_note(self, note_id: SoapNoteId) -> CorrectedNote | None:
+        """Return the note with ``note_id`` if it is still in the correction, else ``None``."""
+        return next((note for note in self.notes if note.id == note_id), None)
+
+    def _record_edit(self, at: datetime) -> None:
+        """Stamp an edit: advance the monotonic revision and the update time."""
+        self.updated_at = at
+        self.revision += 1
 
     def _note(self, note_id: SoapNoteId) -> CorrectedNote:
         for note in self.notes:
