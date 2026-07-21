@@ -40,7 +40,7 @@ from soap.correction_use_cases import (
     SourceReportNotFoundError,
 )
 from soap.editor_use_cases import PendingOperationsBlockVerify, ProposalNotFoundError
-from soap.llm_editor import InvalidProposalError
+from soap.llm_editor import InvalidProposalError, SoapEditError
 from soap.proposal import (
     ActiveProposalExists,
     ConflictingDecision,
@@ -91,6 +91,9 @@ _ERROR_MAP: list[tuple[type[Exception], int, str]] = [
     (EmptyProposal, 422, "invalid_generated_content"),
     (UnknownProposalTarget, 422, "invalid_generated_content"),
     (DuplicateOperationTarget, 422, "invalid_generated_content"),
+    # Base editor error = a genuine model/transport failure (its InvalidProposalError
+    # subclass is matched above as 422); surface it as an upstream outage, not a 500.
+    (SoapEditError, 503, "editor_unavailable"),
     (PublicationNotFoundError, 404, "publication_not_found"),
     (PublicationCorrectionNotFoundError, 404, "correction_not_found"),
     (PublicationSourceReportNotFoundError, 404, "report_not_found"),

@@ -196,9 +196,14 @@ class SoapEditAgent:
                     prompt=prompt,
                     schema=_ProposalOut.model_json_schema(),
                 )
+        except ValueError as exc:
+            # The model returned unparseable or non-object content (JSONDecodeError
+            # is a ValueError): that is invalid generated content, not an outage.
+            _LOG.error("soap.edit.unparseable_output", error=type(exc).__name__)
+            self._reject("unparseable_output")
         except Exception as exc:
-            # The error type, never its message: a transport error may echo the
-            # prompt, and the prompt carries clinical text that must not be logged.
+            # Transport / timeout. Log the error type, never its message: it may
+            # echo the prompt, which carries clinical text that must not be logged.
             _LOG.error("soap.edit.generation_failed", error=type(exc).__name__)
             raise SoapEditError("SOAP edit generation failed") from exc
         try:
