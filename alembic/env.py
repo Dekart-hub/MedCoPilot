@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 import dialogue.orm  # noqa: F401  (side effect: register tables on Base.metadata)
 import soap.correction_orm  # noqa: F401  (side effect: register tables on Base.metadata)
 import soap.orm  # noqa: F401  (side effect: register tables on Base.metadata)
+import soap.proposal_orm  # noqa: F401  (side effect: register tables on Base.metadata)
 from config.settings import get_settings
 from infra.db import Base
 

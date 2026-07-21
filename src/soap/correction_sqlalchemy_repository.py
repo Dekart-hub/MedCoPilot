@@ -69,6 +69,7 @@ def _to_row(correction: SoapReportCorrection) -> SoapCorrectionRow:
         verified_at=correction.verified_at,
         created_at=correction.created_at,
         updated_at=correction.updated_at,
+        revision=correction.revision,
         notes=[_note_to_row(note, position) for position, note in enumerate(correction.notes)],
     )
 
@@ -114,6 +115,7 @@ def _to_domain(row: SoapCorrectionRow) -> SoapReportCorrection:
         notes=[_note_to_domain(note) for note in row.notes],
         verified_by=row.verified_by,
         verified_at=row.verified_at,
+        revision=row.revision,
     )
 
 
