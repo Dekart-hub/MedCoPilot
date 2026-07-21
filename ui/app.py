@@ -6,14 +6,18 @@ A manual, demo-only interface over the REST API. Two tabs:
   ``patient_id``, and see the extracted ``SoapReport``: the four S/O/A/P
   sections, the ICD code on Assessment claims, per-note confidence, and every
   claim linked back to the dialogue turn it cites.
-* **Correction workflow** (stories #8 and #10) — pick a report from a list
+* **Correction workflow** (stories #8, #10 and #12) — pick a report from a list
   (newest first), open its editable *correction*, and drive the whole lifecycle
   against the API: edit / add / delete notes, re-code the ICD, verify, and
   reopen. The source dialogue is shown alongside, each note shows its origin
   (copied from the original vs doctor-added), and every citation is resolved
-  back to its source turn via ``GET /dialogues/{id}``. Once verified, the same
-  screen shows online quality aggregates and matched-note detail from
-  ``GET /dialogues/{id}/quality``.
+  back to its source turn via ``GET /dialogues/{id}``. The same screen carries
+  the **LLM correction editor** (story #12): ask the agent for an edit, review
+  each proposed operation's before/proposed diff, and accept or reject them one
+  by one — pending operations sit in their own prominent section and block
+  ``verify`` until decided. The report's changes are shown two ways side by
+  side: the doctor's online-quality aggregates (``GET /dialogues/{id}/quality``)
+  next to the agent's editor acceptance metric (``GET …/editor/metric``).
 
 This is **out of scope** for the baseline DoD; it is a thin client over the API
 and deliberately kept simple. It talks HTTP only -- it imports nothing from
@@ -37,6 +41,19 @@ SECTION_TITLES = {
     "objective": "Objective",
     "assessment": "Assessment",
     "plan": "Plan",
+}
+
+OPERATION_LABELS = {
+    "add_note": "Add note",
+    "update_note": "Update note",
+    "delete_note": "Delete note",
+}
+
+PROPOSAL_STATUS_STYLES = {
+    "pending": ("warning", "PENDING — operations still need decisions"),
+    "accepted": ("success", "ACCEPTED — every operation was accepted"),
+    "rejected": ("error", "REJECTED — every operation was rejected"),
+    "mixed": ("info", "MIXED — some operations accepted, some rejected"),
 }
 
 EXAMPLE_DIALOGUE = (
@@ -123,6 +140,65 @@ def get_correction(base_url: str, report_id: str) -> dict[str, Any]:
 def get_quality(base_url: str, dialogue_id: str) -> dict[str, Any]:
     """GET dialogue-level online SOAP quality for the verified correction."""
     response = httpx.get(f"{base_url}/dialogues/{dialogue_id}/quality", timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def create_editor_proposal(
+    base_url: str, report_id: str, user_request: str, patient_id: str
+) -> dict[str, Any]:
+    """POST an agent edit request; the API records PENDING operations, applies nothing."""
+    response = httpx.post(
+        f"{base_url}/reports/{report_id}/correction/editor/proposals",
+        json={"user_request": user_request, "patient_id": patient_id},
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def load_editor_proposal(base_url: str, report_id: str) -> dict[str, Any] | None:
+    """GET the active/most-recent proposal; ``None`` when none exists yet (404)."""
+    try:
+        response = httpx.get(
+            f"{base_url}/reports/{report_id}/correction/editor/proposals",
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        st.error(describe_http_error(error))
+        return None
+    except httpx.RequestError as error:
+        st.error(f"Could not reach the API — is it running? ({error})")
+        return None
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def decide_editor_operation(
+    base_url: str, report_id: str, proposal_id: str, operation_id: str, verdict: str
+) -> dict[str, Any]:
+    """POST accept/reject for one operation and return the reloaded proposal."""
+    response = httpx.post(
+        f"{base_url}/reports/{report_id}/correction/editor/proposals/"
+        f"{proposal_id}/operations/{operation_id}/{verdict}",
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def get_editor_metric(base_url: str, report_id: str) -> dict[str, Any]:
+    """GET the operation-level acceptance metric of the report's editor session."""
+    response = httpx.get(
+        f"{base_url}/reports/{report_id}/correction/editor/metric",
+        timeout=REQUEST_TIMEOUT,
+    )
     response.raise_for_status()
     result: dict[str, Any] = response.json()
     return result
@@ -453,24 +529,45 @@ def render_correction_header(correction: dict[str, Any]) -> None:
         st.info("Draft — editable. Verify it below once the notes are correct.")
 
 
-def render_quality_metrics(quality: dict[str, Any]) -> None:
-    """Show report aggregates and the matched-note detail returned by T23."""
+def render_doctor_change_summary(
+    base_url: str, ctx: dict[str, Any], correction: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Doctor side of the comparison: the online-quality headline, or why it is unavailable."""
+    if correction["status"] != "verified":
+        st.info("Available after the doctor verifies this correction.")
+        return None
+    dialogue_id = ctx.get("dialogue_id")
+    if not dialogue_id:
+        st.warning("Load the source dialogue id to retrieve dialogue-level quality.")
+        return None
+    quality = call_api(get_quality, base_url, dialogue_id)
+    if quality is None:
+        return None
+    st.metric("Notes added", quality["notes_added"])
+    st.metric("Notes removed", quality["notes_removed"])
+    st.metric("Changed characters", quality["changed_characters"])
+    st.metric("Diagnosis changes", quality["diagnosis_changes"])
+    return quality
+
+
+def render_agent_change_summary(metric: dict[str, Any] | None) -> None:
+    """Agent side of the comparison: the LLM-editor acceptance headline."""
+    if metric is None:
+        return
+    st.metric("Accepted", metric["accepted"])
+    st.metric("Rejected", metric["rejected"])
+    st.metric("Pending", metric["pending"])
+    rate = metric["acceptance_rate"]
+    st.metric("Acceptance rate", "n/a" if rate is None else f"{rate:.0%}")
+
+
+def render_quality_note_diffs(quality: dict[str, Any]) -> None:
+    """The matched source/corrected note detail behind the doctor-change aggregates."""
     st.caption(
         f"report {quality['report_id']} · correction {quality['correction_id']} · "
-        "calculated on demand"
+        "matched-note character and diagnosis detail (doctor changes)"
     )
-    added, removed, changed, diagnoses = st.columns(4)
-    added.metric("Notes added", quality["notes_added"])
-    removed.metric("Notes removed", quality["notes_removed"])
-    changed.metric("Changed characters", quality["changed_characters"])
-    diagnoses.metric("Diagnosis changes", quality["diagnosis_changes"])
-    st.caption(
-        "Character and diagnosis metrics include matched notes only; "
-        "doctor-added and removed notes are counted separately."
-    )
-
     note_diffs = quality["note_diffs"]
-    st.markdown("#### Matched note details")
     if note_diffs:
         rows = [
             {
@@ -488,27 +585,232 @@ def render_quality_metrics(quality: dict[str, Any]) -> None:
         st.json(quality)
 
 
-def render_quality_panel(base_url: str, ctx: dict[str, Any], correction: dict[str, Any]) -> None:
-    """Show online quality when verified, or explain why it is unavailable."""
+def render_metric_breakdown(metric: dict[str, Any] | None) -> None:
+    """The agent acceptance detail sliced by model id and prompt version."""
+    if metric is None:
+        return
+    with st.expander("Agent acceptance detail (by model / prompt version)"):
+        breakdown = metric["breakdown"]
+        if breakdown:
+            rows = [
+                {
+                    "Model": slice_["model_id"],
+                    "Prompt": slice_["prompt_version"],
+                    "Proposed": slice_["proposed"],
+                    "Accepted": slice_["accepted"],
+                    "Rejected": slice_["rejected"],
+                    "Pending": slice_["pending"],
+                }
+                for slice_ in breakdown
+            ]
+            st.dataframe(rows, hide_index=True, width="stretch")
+        else:
+            st.caption("No editor operations recorded for this report yet.")
+        st.json(metric)
+
+
+def render_change_comparison(
+    base_url: str, ctx: dict[str, Any], correction: dict[str, Any]
+) -> None:
+    """Render doctor-change quality next to the agent-editor acceptance, side by side."""
     st.divider()
-    st.subheader("Online SOAP quality")
-    if correction["status"] != "verified":
-        st.info("Quality is available after the doctor verifies this correction.")
-        return
-    dialogue_id = ctx.get("dialogue_id")
-    if not dialogue_id:
-        st.warning("Load the source dialogue id to retrieve dialogue-level quality.")
-        return
-    quality = call_api(get_quality, base_url, dialogue_id)
+    st.subheader("Report changes — doctor vs agent")
+    metric = call_api(get_editor_metric, base_url, ctx["report_id"])
+    doctor_col, agent_col = st.columns(2)
+    with doctor_col:
+        st.markdown("#### Doctor changes")
+        st.caption("Online SOAP quality — `GET /dialogues/{id}/quality`.")
+        quality = render_doctor_change_summary(base_url, ctx, correction)
+    with agent_col:
+        st.markdown("#### Agent changes")
+        st.caption("LLM-editor acceptance — `GET …/editor/metric`.")
+        render_agent_change_summary(metric)
     if quality is not None:
-        render_quality_metrics(quality)
+        render_quality_note_diffs(quality)
+    render_metric_breakdown(metric)
 
 
-def render_verify_controls(base_url: str, ctx: dict[str, Any]) -> None:
-    """Draft-only: capture a doctor id and verify the correction."""
+def render_operation_note(
+    ctx: dict[str, Any], note: dict[str, Any] | None, *, show_icd: bool
+) -> None:
+    """Render one side of an operation's diff: a note's sections, citations, optional ICD."""
+    if note is None:
+        st.caption("_(none)_")
+        return
+    sections = note["sections"]
+    for section_key in SECTION_TITLES:
+        claims = sections.get(section_key, [])
+        if not claims:
+            continue
+        st.markdown(f"**{SECTION_TITLES[section_key]}**")
+        for claim in claims:
+            st.markdown(f"- {claim['text']}")
+            if show_icd and section_key == "assessment":
+                render_icd(claim.get("icd"))
+            for citation in claim["citations"]:
+                render_citation(citation, ctx["turns"])
+
+
+def render_operation(ctx: dict[str, Any], operation: dict[str, Any]) -> None:
+    """Render one operation: its type, target, before/proposed diff and the ICD caveat."""
+    st.markdown(f"**{OPERATION_LABELS.get(operation['type'], operation['type'])}**")
+    target = operation["target_note_id"]
+    if target:
+        st.caption(f"target note: `{target[:8]}…`")
+    before_col, proposed_col = st.columns(2)
+    with before_col:
+        st.markdown("_Before_")
+        render_operation_note(ctx, operation["before"], show_icd=True)
+    with proposed_col:
+        st.markdown("_Proposed_")
+        render_operation_note(ctx, operation["proposed"], show_icd=False)
+    st.caption("The agent never changes ICD codings — an accepted update keeps the note's ICD.")
+
+
+def _decide_operation(
+    base_url: str, ctx: dict[str, Any], proposal: dict[str, Any], op_id: str, verdict: str, msg: str
+) -> None:
+    """Send one accept/reject decision and rerun so the correction and metric refresh."""
+    if call_api(
+        decide_editor_operation,
+        base_url,
+        ctx["report_id"],
+        proposal["id"],
+        op_id,
+        verdict,
+        success=msg,
+    ):
+        st.rerun()
+
+
+def render_operation_controls(
+    base_url: str, ctx: dict[str, Any], proposal: dict[str, Any], operation: dict[str, Any]
+) -> None:
+    """Per-operation Accept / Reject buttons wired to the editor endpoints."""
+    accept_col, reject_col = st.columns(2)
+    op_id = operation["id"]
+    with accept_col:
+        if st.button("Accept", key=f"accept-{op_id}", type="primary"):
+            _decide_operation(base_url, ctx, proposal, op_id, "accept", "Accepted — updated.")
+    with reject_col:
+        if st.button("Reject", key=f"reject-{op_id}"):
+            _decide_operation(base_url, ctx, proposal, op_id, "reject", "Rejected — unchanged.")
+
+
+def render_pending_operations(
+    base_url: str,
+    ctx: dict[str, Any],
+    proposal: dict[str, Any],
+    pending: list[dict[str, Any]],
+    *,
+    decidable: bool,
+) -> None:
+    """The prominent, distinct section of operations still awaiting a doctor decision."""
+    st.markdown("### ⏳ Pending operations — awaiting your decision")
+    if not pending:
+        st.success("No pending operations — every proposed edit has been decided.")
+        return
+    st.warning(
+        f"{len(pending)} operation(s) still need a decision. "
+        "Verify stays blocked until all are decided."
+    )
+    for operation in pending:
+        with st.container(border=True):
+            render_operation(ctx, operation)
+            if decidable:
+                render_operation_controls(base_url, ctx, proposal, operation)
+
+
+def render_decided_operations(ctx: dict[str, Any], decided: list[dict[str, Any]]) -> None:
+    """Operations the doctor has already accepted or rejected, kept out of the pending area."""
+    if not decided:
+        return
+    st.markdown("### Decided operations")
+    for operation in decided:
+        label = OPERATION_LABELS.get(operation["type"], operation["type"])
+        with st.expander(f"{label} · {operation['decision'].upper()}"):
+            render_operation(ctx, operation)
+
+
+def render_status_badge(status: str) -> None:
+    """Render the proposal's overall outcome (pending / accepted / rejected / mixed)."""
+    level, message = PROPOSAL_STATUS_STYLES.get(status, ("write", status))
+    getattr(st, level)(f"Overall status: {message}")
+
+
+def render_proposal(
+    base_url: str, ctx: dict[str, Any], correction: dict[str, Any], proposal: dict[str, Any]
+) -> None:
+    """Render one proposal: its request, overall status and per-operation review."""
+    st.markdown(f"**Agent request:** {proposal['user_request']}")
+    render_status_badge(proposal["status"])
+    operations = proposal["operations"]
+    pending = [op for op in operations if op["decision"] == "pending"]
+    decided = [op for op in operations if op["decision"] != "pending"]
+    decidable = correction["status"] == "draft"
+    render_pending_operations(base_url, ctx, proposal, pending, decidable=decidable)
+    render_decided_operations(ctx, decided)
+    with st.expander("Raw proposal JSON"):
+        st.json(proposal)
+
+
+def render_propose_form(base_url: str, ctx: dict[str, Any], *, active: bool) -> None:
+    """Capture a user request and ask the agent for a proposal (blocked while one is pending)."""
+    with st.form("propose-edit"):
+        user_request = st.text_area(
+            "Ask the agent to edit this correction",
+            placeholder="e.g. Add a plan note to schedule a follow-up chest X-ray in two weeks.",
+        )
+        patient_id = st.text_input("patient_id", value="")
+        submitted = st.form_submit_button("Generate proposal", disabled=active)
+    if active:
+        st.caption("Decide the pending operations below before requesting a new proposal.")
+    if submitted:
+        if not user_request.strip():
+            st.warning("Describe the edit you want the agent to make.")
+        elif call_api(
+            create_editor_proposal,
+            base_url,
+            ctx["report_id"],
+            user_request.strip(),
+            patient_id.strip(),
+            success="Proposal generated.",
+        ):
+            st.rerun()
+
+
+def render_editor_panel(
+    base_url: str,
+    ctx: dict[str, Any],
+    correction: dict[str, Any],
+    proposal: dict[str, Any] | None,
+) -> None:
+    """The LLM correction editor: request a proposal, then review each operation."""
+    st.subheader("LLM correction editor (story #12)")
+    st.caption(
+        "The agent proposes note edits through the API; the doctor accepts or rejects each one. "
+        "ICD codings never travel through a proposal."
+    )
+    if correction["status"] == "draft":
+        render_propose_form(base_url, ctx, active=_has_pending(proposal))
+    else:
+        st.info("Proposals are generated only on a draft correction — reopen it to use the editor.")
+    if proposal is None:
+        st.caption("No proposal yet for this report.")
+        return
+    render_proposal(base_url, ctx, correction, proposal)
+
+
+def render_verify_controls(base_url: str, ctx: dict[str, Any], *, has_pending: bool) -> None:
+    """Draft-only: capture a doctor id and verify — blocked while a proposal has pending ops."""
     st.markdown("#### Verify")
+    if has_pending:
+        st.warning(
+            "Verify is disabled while the agent proposal has pending operations — "
+            "decide them in the LLM editor above first. The API also rejects it with a 409."
+        )
     doctor_id = st.text_input("Doctor id", key="verify-doctor")
-    if st.button("Verify correction", type="primary"):
+    if st.button("Verify correction", type="primary", disabled=has_pending):
         if not doctor_id.strip():
             st.warning("Enter a doctor id to verify.")
         elif call_api(
@@ -531,21 +833,29 @@ def render_locked_controls(base_url: str, ctx: dict[str, Any]) -> None:
             call_api(add_note, base_url, ctx["report_id"], {})
 
 
+def _has_pending(proposal: dict[str, Any] | None) -> bool:
+    """True when the current proposal still holds undecided operations."""
+    return proposal is not None and proposal["status"] == "pending"
+
+
 def render_correction(base_url: str, ctx: dict[str, Any], correction: dict[str, Any]) -> None:
     """Render the whole correction and wire every workflow action to the API."""
     editable = correction["status"] == "draft"
     render_correction_header(correction)
-    render_quality_panel(base_url, ctx, correction)
+    proposal = load_editor_proposal(base_url, ctx["report_id"])
+    render_change_comparison(base_url, ctx, correction)
     st.divider()
     for position, note in enumerate(correction["notes"], start=1):
         render_corrected_note(base_url, ctx, note, position, editable=editable)
+    st.divider()
+    render_editor_panel(base_url, ctx, correction, proposal)
     st.divider()
     if editable:
         if ctx["turns"]:
             render_add_note_form(base_url, ctx)
         else:
             st.info("Load a source dialogue id above to add grounded notes.")
-        render_verify_controls(base_url, ctx)
+        render_verify_controls(base_url, ctx, has_pending=_has_pending(proposal))
     else:
         render_locked_controls(base_url, ctx)
     with st.expander("Raw correction JSON"):

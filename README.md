@@ -90,18 +90,45 @@ demonstrates the `409 {code, detail}` rejection, and **Reopen for editing**
 (`POST …/reopen`) returns it to a draft. All API errors are rendered as readable
 `code: detail` messages.
 
-For a verified correction the same screen also loads `GET
-/dialogues/{dialogue_id}/quality` and shows all four online-quality aggregates:
-added notes, removed notes, changed characters and diagnosis changes. A table
-below them lists every matched source/corrected Note pair with its character
-distance and diagnosis-change flag. Draft and reopened corrections show the
-metrics as unavailable until the next verification, matching the API lifecycle.
+The report's changes are shown two ways side by side under **Report changes —
+doctor vs agent**: the *doctor* column loads `GET /dialogues/{dialogue_id}/quality`
+and shows the four online-quality aggregates (added notes, removed notes, changed
+characters, diagnosis changes) with a matched-note detail table below; the *agent*
+column shows the LLM-editor acceptance metric (accepted / rejected / pending and
+the acceptance rate) from `GET …/editor/metric`. The doctor side is available only
+after verification (draft and reopened corrections show it as unavailable, matching
+the API lifecycle); the agent metric is always shown for the chosen report.
 
 This tab relies on the read endpoint **`GET /dialogues/{id}`** — it returns a
 dialogue with its ordered turns (`{id, speaker, text}`), or `404` if the
 dialogue does not exist — so the UI can turn each citation's opaque `turn_id`
 back into the text the doctor actually said. Unlike the demo UI, that endpoint
 is real API surface and is unit-tested.
+
+### Demo: LLM correction editor (story #12)
+
+The same **Correction workflow** tab carries the **LLM correction editor** — a
+demonstration of story #12, driven entirely through the REST API (the UI never
+calls the model directly). On a draft correction, type a request and **Generate
+proposal** (`POST …/editor/proposals`): the agent drafts an edit as a set of
+`add_note` / `update_note` / `delete_note` operations, persisted as *pending*,
+applying nothing yet. Each operation shows its type and target Note, a **before /
+proposed** diff with the cited turns, and a reminder that **the agent never
+changes ICD** codings (an accepted update keeps the note's existing ICD).
+
+Every operation is decided on its own with **Accept** / **Reject**
+(`POST …/operations/{id}/accept|reject`). Pending operations sit in their own
+prominent section — *what still needs a decision* — separate from the decided
+ones, and the proposal's overall status (**pending / accepted / rejected /
+mixed**) is shown above them. Accepting an operation applies it and the
+correction refreshes to show the change; rejecting one leaves the correction
+untouched. **Verify is disabled while any operation is pending** (the API also
+rejects it with `409 pending_operations_block_verify`, shown readably). The
+acceptance metric of the session is displayed as the *agent* side of the
+doctor-vs-agent comparison described above.
+
+Like the rest of this tab, the editor is **demo only** and out of scope for
+every DoD — a thin HTTP client over endpoints that are themselves unit-tested.
 
 ## SOAP correction workflow (story #8)
 
