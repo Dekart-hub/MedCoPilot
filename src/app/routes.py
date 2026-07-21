@@ -13,12 +13,20 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from dialogue.dialogue import DialogueId, DialogueTurnId
 from dialogue.repository import DialogueRepository
 from dialogue.serialization import dialogue_to_dict
 from dialogue.use_cases import AddDialogue, AddDialogueCommand, TurnInput
+from ehr.publication import PublicationStatus
+from ehr.publication_use_cases import (
+    GetEhrPublication,
+    RequestEhrPublication,
+    RequestEhrPublicationCommand,
+)
+from ehr.serialization import publication_to_dict
 from shared.value_objects import Id
 from soap.correction import CorrectionId, SoapReportCorrection
 from soap.correction_repository import SoapReportCorrectionRepository
@@ -82,12 +90,14 @@ from .dependencies import (
     get_delete_corrected_note,
     get_dialogue_repository,
     get_dialogue_soap_quality,
+    get_ehr_publication,
     get_ensure_no_pending_proposal,
     get_extract_soap_report,
     get_propose_correction_edit,
     get_reject_pending_proposals,
     get_reject_proposal_operation,
     get_reopen_soap_correction,
+    get_request_ehr_publication,
     get_soap_report_repository,
     get_start_soap_correction,
     get_update_corrected_note,
@@ -490,3 +500,39 @@ def _to_citation(payload: CitationPayload) -> TurnCitation:
 
 def _to_icd(payload: IcdPayload) -> IcdCoding:
     return IcdCoding(code=payload.code, name=payload.name, classifier_url=payload.classifier_url)
+
+
+class PublicationPayload(BaseModel):
+    patient_ref: str = Field(min_length=1)
+    encounter_ref: str = Field(min_length=1)
+    author_ref: str = Field(min_length=1)
+
+
+@router.post("/reports/{report_id}/publication", tags=["publications"])
+async def request_publication(
+    report_id: UUID,
+    payload: PublicationPayload,
+    session: SessionDep,
+    request: Annotated[RequestEhrPublication, Depends(get_request_ehr_publication)],
+) -> JSONResponse:
+    """Accept a verified correction for durable idempotent FHIR delivery."""
+    delivery = await request.execute(
+        RequestEhrPublicationCommand(
+            report_id=Id(report_id),
+            patient_ref=payload.patient_ref,
+            encounter_ref=payload.encounter_ref,
+            author_ref=payload.author_ref,
+        )
+    )
+    await session.commit()
+    status_code = 202 if delivery.publication.status is PublicationStatus.PENDING else 200
+    return JSONResponse(publication_to_dict(delivery), status_code=status_code)
+
+
+@router.get("/reports/{report_id}/publication", tags=["publications"])
+async def get_publication(
+    report_id: UUID,
+    get: Annotated[GetEhrPublication, Depends(get_ehr_publication)],
+) -> dict[str, Any]:
+    """Return durable delivery status, attempts and the remote Bundle reference."""
+    return publication_to_dict(await get.execute(Id(report_id)))

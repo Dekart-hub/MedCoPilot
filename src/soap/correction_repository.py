@@ -28,3 +28,9 @@ class SoapReportCorrectionRepository(ABC):
     @abstractmethod
     async def get_by_source_report_id(self, report_id: SoapReportId) -> SoapReportCorrection | None:
         """Return the correction editing ``report_id``, or ``None``."""
+
+    async def get_by_source_report_id_for_update(
+        self, report_id: SoapReportId
+    ) -> SoapReportCorrection | None:
+        """Return and lock the correction when the adapter supports row locks."""
+        return await self.get_by_source_report_id(report_id)

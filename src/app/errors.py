@@ -14,7 +14,21 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
+from ehr.publication import (
+    InvalidFhirReference,
+    PublicationInvalidTransition,
+    PublicationRequiresVerifiedCorrection,
+    SnapshotIntegrityError,
+)
+from ehr.publication_use_cases import (
+    PublicationCorrectionNotFoundError,
+    PublicationNotFoundError,
+    PublicationOutboxNotFoundError,
+    PublicationSourceDialogueNotFoundError,
+    PublicationSourceReportNotFoundError,
+)
 from soap.correction import (
+    CorrectionInvalidTransition,
     CorrectionNotEditable,
     DuplicateSourceNote,
     EmptyDoctorId,
@@ -77,6 +91,16 @@ _ERROR_MAP: list[tuple[type[Exception], int, str]] = [
     (EmptyProposal, 422, "invalid_generated_content"),
     (UnknownProposalTarget, 422, "invalid_generated_content"),
     (DuplicateOperationTarget, 422, "invalid_generated_content"),
+    (PublicationNotFoundError, 404, "publication_not_found"),
+    (PublicationCorrectionNotFoundError, 404, "correction_not_found"),
+    (PublicationSourceReportNotFoundError, 404, "report_not_found"),
+    (PublicationSourceDialogueNotFoundError, 404, "dialogue_not_found"),
+    (PublicationRequiresVerifiedCorrection, 409, "report_not_verified"),
+    (CorrectionInvalidTransition, 409, "invalid_correction_transition"),
+    (PublicationInvalidTransition, 409, "invalid_publication_transition"),
+    (InvalidFhirReference, 422, "invalid_fhir_reference"),
+    (PublicationOutboxNotFoundError, 500, "publication_outbox_missing"),
+    (SnapshotIntegrityError, 500, "publication_snapshot_invalid"),
 ]
 
 

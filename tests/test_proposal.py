@@ -300,11 +300,19 @@ def test_a_new_proposal_opens_once_the_previous_is_fully_decided() -> None:
     assert session.active_proposal() is second
 
 
-def test_a_verified_correction_refuses_proposals() -> None:
+def test_a_non_draft_correction_refuses_proposals() -> None:
     correction = _correction()
     session = _session(correction)
     correction.verify("dr-house", at=_LATER)
 
+    with pytest.raises(CorrectionNotProposable):
+        _propose(session, correction, [AddNoteOperation(_proposed())])
+
+    correction.begin_publication(at=_LATER)
+    with pytest.raises(CorrectionNotProposable):
+        _propose(session, correction, [AddNoteOperation(_proposed())])
+
+    correction.mark_published(at=_LATER)
     with pytest.raises(CorrectionNotProposable):
         _propose(session, correction, [AddNoteOperation(_proposed())])
 

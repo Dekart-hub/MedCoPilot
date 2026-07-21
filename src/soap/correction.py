@@ -44,6 +44,8 @@ class CorrectionStatus(StrEnum):
 
     DRAFT = "draft"
     VERIFIED = "verified"
+    PUBLICATION_PENDING = "publication_pending"
+    PUBLISHED = "published"
 
 
 class CorrectionError(Exception):
@@ -51,7 +53,11 @@ class CorrectionError(Exception):
 
 
 class CorrectionNotEditable(CorrectionError):
-    """Raised when a note is added, updated or deleted on a VERIFIED correction."""
+    """Raised when a mutation is attempted outside the editable DRAFT state."""
+
+
+class CorrectionInvalidTransition(CorrectionError):
+    """Raised when the requested lifecycle transition is not allowed."""
 
 
 class NoteNotInCorrection(CorrectionError):
@@ -177,6 +183,10 @@ class SoapReportCorrection(Entity[CorrectionId]):
 
     def verify(self, doctor_id: str, *, at: datetime) -> None:
         """Move DRAFT → VERIFIED, stamping the checking doctor and the time."""
+        if self.status is not CorrectionStatus.DRAFT:
+            raise CorrectionInvalidTransition(
+                f"cannot verify a correction in {self.status.value} state"
+            )
         if not doctor_id.strip():
             raise EmptyDoctorId("verifying a correction requires a doctor id")
         self.status = CorrectionStatus.VERIFIED
@@ -186,6 +196,10 @@ class SoapReportCorrection(Entity[CorrectionId]):
 
     def reopen(self, *, at: datetime) -> None:
         """Move VERIFIED → DRAFT, dropping the now-stale verification stamp."""
+        if self.status is not CorrectionStatus.VERIFIED:
+            raise CorrectionInvalidTransition(
+                f"cannot reopen a correction in {self.status.value} state"
+            )
         self.status = CorrectionStatus.DRAFT
         self.verified_by = None
         self.verified_at = None
@@ -193,8 +207,28 @@ class SoapReportCorrection(Entity[CorrectionId]):
 
     def ensure_editable(self) -> None:
         """Guard: a verified correction rejects any edit until it is reopened."""
-        if self.status is CorrectionStatus.VERIFIED:
-            raise CorrectionNotEditable("a verified correction must be reopened before editing")
+        if self.status is not CorrectionStatus.DRAFT:
+            raise CorrectionNotEditable(
+                f"a correction in {self.status.value} state cannot be edited"
+            )
+
+    def begin_publication(self, *, at: datetime) -> None:
+        """Move VERIFIED → PUBLICATION_PENDING and permanently lock editing."""
+        if self.status is not CorrectionStatus.VERIFIED:
+            raise CorrectionInvalidTransition(
+                f"cannot publish a correction in {self.status.value} state"
+            )
+        self.status = CorrectionStatus.PUBLICATION_PENDING
+        self.updated_at = at
+
+    def mark_published(self, *, at: datetime) -> None:
+        """Move PUBLICATION_PENDING → PUBLISHED after remote acknowledgement."""
+        if self.status is not CorrectionStatus.PUBLICATION_PENDING:
+            raise CorrectionInvalidTransition(
+                f"cannot acknowledge a correction in {self.status.value} state"
+            )
+        self.status = CorrectionStatus.PUBLISHED
+        self.updated_at = at
 
     def find_note(self, note_id: SoapNoteId) -> CorrectedNote | None:
         """Return the note with ``note_id`` if it is still in the correction, else ``None``."""

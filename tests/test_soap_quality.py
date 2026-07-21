@@ -114,6 +114,18 @@ def test_unchanged_report_has_zero_metrics() -> None:
     assert result.note_diffs[0].diagnosis_changed is False
 
 
+def test_quality_remains_available_while_pending_and_after_publication() -> None:
+    source = _report(_note(subjective=["Headache."]))
+    correction = _verified_correction(source)
+    correction.begin_publication(at=_VERIFIED)
+
+    pending = calculate_soap_report_diff(source, correction)
+    correction.mark_published(at=_VERIFIED)
+    published = calculate_soap_report_diff(source, correction)
+
+    assert pending == published
+
+
 @pytest.mark.parametrize(
     ("source_text", "corrected_text"),
     [

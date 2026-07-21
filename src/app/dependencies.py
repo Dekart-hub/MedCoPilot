@@ -20,6 +20,17 @@ from dialogue.providers import get_dialogue_repository as _build_dialogue_reposi
 from dialogue.repository import DialogueRepository
 from dialogue.use_cases import AddDialogue
 from ehr.client import EhrClient
+from ehr.providers import (
+    get_ehr_publication_repository as _build_publication_repository,
+)
+from ehr.providers import (
+    get_publication_outbox_repository as _build_publication_outbox_repository,
+)
+from ehr.publication_repository import (
+    EhrPublicationRepository,
+    PublicationOutboxRepository,
+)
+from ehr.publication_use_cases import GetEhrPublication, RequestEhrPublication
 from icd.bm25_coder import Bm25IcdCoder
 from infra.db import get_session
 from infra.ehr import build_ehr_client
@@ -232,3 +243,48 @@ def get_current_proposal(sessions: EditorSessionRepositoryDep) -> GetCurrentProp
 
 def get_acceptance_metric(sessions: EditorSessionRepositoryDep) -> ComputeAcceptanceMetric:
     return ComputeAcceptanceMetric(sessions)
+
+
+def get_ehr_publication_repository(
+    session: SessionDep,
+) -> EhrPublicationRepository:
+    return _build_publication_repository(session)
+
+
+def get_publication_outbox_repository(
+    session: SessionDep,
+) -> PublicationOutboxRepository:
+    return _build_publication_outbox_repository(session)
+
+
+PublicationRepositoryDep = Annotated[
+    EhrPublicationRepository, Depends(get_ehr_publication_repository)
+]
+PublicationOutboxRepositoryDep = Annotated[
+    PublicationOutboxRepository, Depends(get_publication_outbox_repository)
+]
+
+
+def get_request_ehr_publication(
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    reports: ReportRepositoryDep,
+    dialogues: DialogueRepositoryDep,
+    publications: PublicationRepositoryDep,
+    outbox: PublicationOutboxRepositoryDep,
+) -> RequestEhrPublication:
+    return RequestEhrPublication(
+        session,
+        corrections,
+        reports,
+        dialogues,
+        publications,
+        outbox,
+    )
+
+
+def get_ehr_publication(
+    publications: PublicationRepositoryDep,
+    outbox: PublicationOutboxRepositoryDep,
+) -> GetEhrPublication:
+    return GetEhrPublication(publications, outbox)

@@ -109,6 +109,8 @@ The generated report is the model's output and is **immutable**: `GET
 /reports/{id}` always returns that original, before and after any correction. A
 doctor's edits live in a separate, single working version — the *correction* —
 which starts as a `draft` and becomes `verified` once the doctor has checked it.
+Accepting it for EHR publication moves it permanently through
+`publication_pending` to `published`.
 Every corrected note keeps a `source_note_id` back to the original note it was
 copied from (a doctor-added note has `source_note_id: null`).
 
@@ -126,7 +128,9 @@ endpoints hang off `/reports/{report_id}/correction`:
 | `POST /reports/{report_id}/correction/reopen` | Return a verified correction to editing (`verified → draft`). |
 
 Editing is only allowed while the correction is a `draft`; a `verified`
-correction rejects every change until it is reopened.
+correction rejects every change until it is reopened. Once publication is
+requested, both `publication_pending` and `published` reject edit, reopen and
+repeat verification operations.
 
 ### Request examples
 
@@ -185,6 +189,7 @@ machine-readable `code`:
 | 404 | `correction_not_found` | The report has no correction yet. |
 | 404 | `note_not_found` | The note id does not belong to the correction. |
 | 409 | `correction_not_editable` | Editing a `verified` correction (reopen it first). |
+| 409 | `invalid_correction_transition` | Reopening or verifying a publication-locked correction. |
 | 422 | `citation_not_in_source_dialogue` | A claim cites a turn absent from the source dialogue. |
 | 422 | `empty_doctor_id` | `verify` was called without a non-blank `doctor_id`. |
 | 422 | `duplicate_source_note` | Two corrected notes claim the same source note. |
@@ -315,6 +320,107 @@ Quality errors use the same stable `{"code": "...", "detail": "..."}` body:
 | 404 | `report_not_found` | No extracted report exists for the dialogue. |
 | 404 | `correction_not_found` | The report has no doctor correction. |
 | 409 | `REPORT_NOT_VERIFIED` | The correction is still a draft or was reopened. |
+
+Quality remains available while the verified correction is
+`publication_pending` and after it becomes `published`; those states retain the
+same immutable doctor-verified content.
+
+## FHIR/EHR publication (story #9)
+
+Only a verified correction can be accepted for publication. Acceptance is a
+single database transaction that creates an immutable, SHA-256-addressed
+snapshot of the full dialogue and correction, moves the correction to
+`publication_pending`, and stores a durable outbox event containing the same
+snapshot. At most one publication and one outbox event exist per correction.
+
+```text
+draft → verified → publication_pending → published
+```
+
+The last two states are permanently locked. A failed or disabled EHR does not
+reopen the report and does not discard the payload; it remains pending for a
+later attempt.
+
+| Method + path | Purpose |
+|---|---|
+| `POST /reports/{report_id}/publication` | Accept a verified correction; pending responses use HTTP 202. Repeats return the existing publication. |
+| `GET /reports/{report_id}/publication` | Read status, attempts, next retry, last error and remote Bundle identity. |
+
+Request body:
+
+```json
+{
+  "patient_ref": "Patient/mock-patient-001",
+  "encounter_ref": "Encounter/mock-encounter-001",
+  "author_ref": "Practitioner/mock-practitioner-001"
+}
+```
+
+The dispatcher selects committed due events with `FOR UPDATE SKIP LOCKED`, so
+multiple replicas do not process the same row concurrently. Failures increment
+the persisted attempt count and schedule exponential backoff without a terminal
+discard state. On success, publication delivery, correction `published` state
+and outbox acknowledgement are committed together. If HAPI creates the Bundle
+but its response is lost, the next attempt finds it by the deterministic FHIR
+identifier before attempting conditional create.
+
+### FHIR R4 document mapping
+
+The remote resource is `Bundle.type = document`; its first entry is a final
+`Composition`. Patient, Encounter and Practitioner are loaded from the mock EHR
+and embedded as snapshot resources. Every internal reference uses a stable
+`urn:uuid` derived from the publication id.
+
+- Each SOAP Note contains nested Subjective, Objective, Assessment and Plan
+  sections in canonical order, including claim text and evidence citations.
+- An Assessment with ICD produces an encounter-diagnosis `Condition` using
+  `http://hl7.org/fhir/sid/icd-10`; uncoded assessments remain narrative only.
+- The ordered dialogue, including turn ids, speakers and text, is an inline JSON
+  attachment in `DocumentReference`.
+- `Bundle.identifier` and `Composition.identifier` use
+  `FHIR_IDENTIFIER_SYSTEM|publication_id`, making retry lookup and conditional
+  create deterministic.
+
+### Dispatcher configuration and recovery
+
+The dispatcher is disabled by default so tests and extraction-only deployments
+never contact an external service. Configure `.env` and restart the app:
+
+```bash
+FHIR_BASE_URL=http://localhost:8080/fhir
+FHIR_DISPATCHER_ENABLED=true
+```
+
+`FHIR_DISPATCHER_POLL_SECONDS`, `FHIR_DISPATCHER_BATCH_SIZE`,
+`FHIR_RETRY_INITIAL_SECONDS` and `FHIR_RETRY_MAX_SECONDS` control polling and
+persisted backoff. To recover operationally, restore FHIR connectivity and
+leave or re-enable the dispatcher; no database row needs to be recreated or
+manually reset. `GET /reports/{id}/publication` exposes the last error and next
+attempt.
+
+Stable publication errors use the common `{"code": ..., "detail": ...}` body:
+
+| Status | `code` | Cause |
+|---|---|---|
+| 404 | `correction_not_found` | The report has no correction to publish. |
+| 404 | `publication_not_found` | No publication has been requested. |
+| 409 | `report_not_verified` | The correction is still a draft. |
+| 422 | `invalid_fhir_reference` | Patient, Encounter or Practitioner reference has an invalid type or id. |
+
+### Local HAPI FHIR contract
+
+The mock uses the pinned HAPI FHIR R4 image and a synthetic Patient, Encounter
+and Practitioner fixture:
+
+```bash
+make mock-ehr-up
+make mock-ehr-seed
+make mock-ehr-live-test
+make mock-ehr-down
+```
+
+The opt-in live test submits the document to HAPI validation and verifies that
+two deliveries resolve to one Bundle.
 
 ## Model serving (vLLM + GPU)
 

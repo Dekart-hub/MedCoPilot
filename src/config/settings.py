@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     # fixture wired by ``infra.ehr.build_ehr_client``.
     ehr_mock_path: Path | None = None
 
+    fhir_base_url: str = "http://localhost:8080/fhir"
+    fhir_identifier_system: str = "urn:medcopilot:ehr-publication"
+    fhir_timeout_seconds: float = 10.0
+    fhir_dispatcher_enabled: bool = False
+    fhir_dispatcher_poll_seconds: float = 1.0
+    fhir_dispatcher_batch_size: int = 10
+    fhir_retry_initial_seconds: float = 1.0
+    fhir_retry_max_seconds: float = 300.0
+
 
 @lru_cache
 def get_settings() -> Settings:
