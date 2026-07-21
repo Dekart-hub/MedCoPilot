@@ -201,6 +201,16 @@ def test_output_schema_has_no_icd_channel() -> None:
     assert "add_note" in schema and "update_note" in schema and "delete_note" in schema
 
 
+def test_instructions_state_update_replaces_the_whole_note() -> None:
+    # update_note is a full replace, so the model must be told to reproduce the
+    # statements it wants to keep — otherwise a "just add X" edit wipes the note.
+    from soap.llm_editor import _EDIT_INSTRUCTIONS
+
+    text = _EDIT_INSTRUCTIONS.lower()
+    assert "update_note replaces" in text
+    assert "you omit is deleted" in text
+
+
 def test_unknown_target_note_is_rejected() -> None:
     report, correction, session = _fixtures()
     payload = _payload(_update(99, _content(subjective=[_claim_out("x")])))

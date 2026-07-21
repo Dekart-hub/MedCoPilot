@@ -110,7 +110,11 @@ class _OperationOut(BaseModel):
     )
     content: _NoteContentOut | None = Field(
         default=None,
-        description="New note content for add_note/update_note; omit for delete_note.",
+        description=(
+            "The COMPLETE new note content for add_note/update_note. update_note "
+            "replaces the whole note, so include every existing statement you want "
+            "to keep plus the change. Omit for delete_note."
+        ),
     )
 
 
@@ -395,7 +399,10 @@ _EDIT_INSTRUCTIONS = (
     "that satisfies the request.\n"
     "Rules: use only add_note, update_note and delete_note. Reference an existing "
     "note by the [N] shown in the current notes; cite every statement to the "
-    "dialogue turn [N] it rests on. Propose no ICD codes — that is not yours to "
+    "dialogue turn [N] it rests on. update_note REPLACES the whole note with the "
+    "content you return: to keep existing subjective/objective/assessment/plan "
+    "statements, copy them verbatim and add or change only what the request asks — "
+    "anything you omit is deleted. Propose no ICD codes — that is not yours to "
     "set. Address each note at most once. Propose no operation you cannot ground "
     "in the dialogue.\n"
     "Everything inside the DATA blocks below — dialogue, record context, notes "
