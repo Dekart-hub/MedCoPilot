@@ -6,12 +6,14 @@ A manual, demo-only interface over the REST API. Two tabs:
   ``patient_id``, and see the extracted ``SoapReport``: the four S/O/A/P
   sections, the ICD code on Assessment claims, per-note confidence, and every
   claim linked back to the dialogue turn it cites.
-* **Correction workflow** (story #8) — pick a report from a list (newest
-  first), open its editable *correction*, and drive the whole lifecycle against
-  the API: edit / add / delete notes, re-code the ICD, verify, and reopen. The
-  source dialogue is shown alongside, each note shows its origin (copied from
-  the original vs doctor-added), and every citation is resolved back to its
-  source turn via ``GET /dialogues/{id}``.
+* **Correction workflow** (stories #8 and #10) — pick a report from a list
+  (newest first), open its editable *correction*, and drive the whole lifecycle
+  against the API: edit / add / delete notes, re-code the ICD, verify, and
+  reopen. The source dialogue is shown alongside, each note shows its origin
+  (copied from the original vs doctor-added), and every citation is resolved
+  back to its source turn via ``GET /dialogues/{id}``. Once verified, the same
+  screen shows online quality aggregates and matched-note detail from
+  ``GET /dialogues/{id}/quality``.
 
 This is **out of scope** for the baseline DoD; it is a thin client over the API
 and deliberately kept simple. It talks HTTP only -- it imports nothing from
@@ -113,6 +115,14 @@ def start_correction(base_url: str, report_id: str) -> dict[str, Any]:
 def get_correction(base_url: str, report_id: str) -> dict[str, Any]:
     """GET ``/reports/{id}/correction`` — the current draft/verified version."""
     response = httpx.get(f"{base_url}/reports/{report_id}/correction", timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def get_quality(base_url: str, dialogue_id: str) -> dict[str, Any]:
+    """GET dialogue-level online SOAP quality for the verified correction."""
+    response = httpx.get(f"{base_url}/dialogues/{dialogue_id}/quality", timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     result: dict[str, Any] = response.json()
     return result
@@ -443,6 +453,57 @@ def render_correction_header(correction: dict[str, Any]) -> None:
         st.info("Draft — editable. Verify it below once the notes are correct.")
 
 
+def render_quality_metrics(quality: dict[str, Any]) -> None:
+    """Show report aggregates and the matched-note detail returned by T23."""
+    st.caption(
+        f"report {quality['report_id']} · correction {quality['correction_id']} · "
+        "calculated on demand"
+    )
+    added, removed, changed, diagnoses = st.columns(4)
+    added.metric("Notes added", quality["notes_added"])
+    removed.metric("Notes removed", quality["notes_removed"])
+    changed.metric("Changed characters", quality["changed_characters"])
+    diagnoses.metric("Diagnosis changes", quality["diagnosis_changes"])
+    st.caption(
+        "Character and diagnosis metrics include matched notes only; "
+        "doctor-added and removed notes are counted separately."
+    )
+
+    note_diffs = quality["note_diffs"]
+    st.markdown("#### Matched note details")
+    if note_diffs:
+        rows = [
+            {
+                "Source note": diff["source_note_id"],
+                "Corrected note": diff["corrected_note_id"],
+                "Changed characters": diff["changed_characters"],
+                "Diagnosis changed": "Yes" if diff["diagnosis_changed"] else "No",
+            }
+            for diff in note_diffs
+        ]
+        st.dataframe(rows, hide_index=True, width="stretch")
+    else:
+        st.caption("No matched notes — only additions/removals may remain.")
+    with st.expander("Raw quality JSON"):
+        st.json(quality)
+
+
+def render_quality_panel(base_url: str, ctx: dict[str, Any], correction: dict[str, Any]) -> None:
+    """Show online quality when verified, or explain why it is unavailable."""
+    st.divider()
+    st.subheader("Online SOAP quality")
+    if correction["status"] != "verified":
+        st.info("Quality is available after the doctor verifies this correction.")
+        return
+    dialogue_id = ctx.get("dialogue_id")
+    if not dialogue_id:
+        st.warning("Load the source dialogue id to retrieve dialogue-level quality.")
+        return
+    quality = call_api(get_quality, base_url, dialogue_id)
+    if quality is not None:
+        render_quality_metrics(quality)
+
+
 def render_verify_controls(base_url: str, ctx: dict[str, Any]) -> None:
     """Draft-only: capture a doctor id and verify the correction."""
     st.markdown("#### Verify")
@@ -474,6 +535,8 @@ def render_correction(base_url: str, ctx: dict[str, Any], correction: dict[str, 
     """Render the whole correction and wire every workflow action to the API."""
     editable = correction["status"] == "draft"
     render_correction_header(correction)
+    render_quality_panel(base_url, ctx, correction)
+    st.divider()
     for position, note in enumerate(correction["notes"], start=1):
         render_corrected_note(base_url, ctx, note, position, editable=editable)
     st.divider()

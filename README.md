@@ -90,6 +90,13 @@ demonstrates the `409 {code, detail}` rejection, and **Reopen for editing**
 (`POST …/reopen`) returns it to a draft. All API errors are rendered as readable
 `code: detail` messages.
 
+For a verified correction the same screen also loads `GET
+/dialogues/{dialogue_id}/quality` and shows all four online-quality aggregates:
+added notes, removed notes, changed characters and diagnosis changes. A table
+below them lists every matched source/corrected Note pair with its character
+distance and diagnosis-change flag. Draft and reopened corrections show the
+metrics as unavailable until the next verification, matching the API lifecycle.
+
 This tab relies on the read endpoint **`GET /dialogues/{id}`** — it returns a
 dialogue with its ordered turns (`{id, speaker, text}`), or `404` if the
 dialogue does not exist — so the UI can turn each citation's opaque `turn_id`
