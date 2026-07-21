@@ -378,16 +378,31 @@ def _content(operation: ProposalOperation, current: CorrectedNote | None) -> dic
     proposed = operation.proposed
     if proposed is None:
         raise RuntimeError("an add/update operation must carry proposed content")
-    icds = [claim.icd for claim in current.assessment] if current is not None else []
+    # The agent never proposes ICD (out of scope for #12). Carry an existing code to a
+    # proposed assessment claim only when its diagnosis text is unchanged, matching by
+    # text rather than list position: a code stays bound to its own diagnosis (no swap
+    # on reorder, no misbind on a shape change), and a reworded diagnosis is left
+    # uncoded for the doctor to re-code — never a silently mislabelled clinical code.
+    kept = _icd_by_diagnosis(current)
     return {
         "subjective": [_to_claim(claim) for claim in proposed.subjective],
         "objective": [_to_claim(claim) for claim in proposed.objective],
         "assessment": [
-            _to_assessment(claim, icds[index] if index < len(icds) else None)
-            for index, claim in enumerate(proposed.assessment)
+            _to_assessment(claim, kept.get(claim.text)) for claim in proposed.assessment
         ],
         "plan": [_to_claim(claim) for claim in proposed.plan],
     }
+
+
+def _icd_by_diagnosis(current: CorrectedNote | None) -> dict[str, IcdCoding]:
+    """Map each current assessment claim's text to its ICD (first wins on duplicates)."""
+    if current is None:
+        return {}
+    coded: dict[str, IcdCoding] = {}
+    for claim in current.assessment:
+        if claim.icd is not None and claim.text not in coded:
+            coded[claim.text] = claim.icd
+    return coded
 
 
 def _to_claim(claim: ProposedClaim) -> SoapClaim:
