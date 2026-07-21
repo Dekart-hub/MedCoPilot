@@ -287,6 +287,29 @@ Required environment variables:
 - `MODEL_ID` — served model id (e.g. `google/medgemma-4b-it`).
 - `PYTHONPATH=src` — so the `src`-layout packages import.
 
+## Manual acceptance (SOAP edit agent smoke test)
+
+`scripts/smoke_editor.py` is the QA-runs-it-by-hand acceptance check for the LLM
+SOAP edit agent (story #12) — **not** a pytest test and not part of `make check`
+or CI (the unit suite in `tests/test_llm_editor.py` mocks the LLM). It builds a
+doctor correction from a canned dialogue, asks the real agent on a live vLLM
+server to satisfy a plain edit request (e.g. "add a follow-up plan note"), and
+checks the returned `ProposalDraft` against the agent's contract: every operation
+is add / update / delete, each update / delete targets a note that exists in the
+correction, every proposed claim cites a real dialogue turn, and no ICD coding
+can appear (the output schema has no channel for it). It prints a per-fixture
+pass/fail report and exits non-zero if any fixture fails.
+
+With the model server up (see above), run it against the host endpoint:
+
+```bash
+VLLM_BASE_URL=http://localhost:8001/v1 MODEL_ID=google/medgemma-4b-it \
+    PYTHONPATH=src uv run python scripts/smoke_editor.py
+```
+
+The required environment variables are the same as for the extractor smoke test
+above (`VLLM_BASE_URL`, `MODEL_ID`, `PYTHONPATH=src`).
+
 ## Demo / E2E
 
 `scripts/e2e_smoke.py` is the end-to-end happy-path scenario `[#7/NFR-4]`: it
