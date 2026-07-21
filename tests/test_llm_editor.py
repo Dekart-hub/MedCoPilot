@@ -219,6 +219,9 @@ def test_instructions_state_update_replaces_the_whole_note() -> None:
     text = _EDIT_INSTRUCTIONS.lower()
     assert "update_note replaces" in text
     assert "you omit is deleted" in text
+    # steer the model to modify in place, not delete-and-recreate (which loses ICD)
+    assert "in place" in text
+    assert "never delete_note" in text
 
 
 def test_unknown_target_note_is_rejected() -> None:
