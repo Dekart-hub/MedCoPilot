@@ -23,7 +23,7 @@ from ehr.client import EhrClient
 from icd.bm25_coder import Bm25IcdCoder
 from infra.db import get_session
 from infra.ehr import build_ehr_client
-from infra.llm import build_llm_extractor
+from infra.llm import build_llm_extractor, build_soap_edit_agent
 from soap.correction_repository import SoapReportCorrectionRepository
 from soap.correction_use_cases import (
     AddCorrectedNote,
@@ -33,7 +33,21 @@ from soap.correction_use_cases import (
     UpdateCorrectedNote,
     VerifySoapCorrection,
 )
+from soap.editor_use_cases import (
+    AcceptProposalOperation,
+    ComputeAcceptanceMetric,
+    EnsureNoPendingProposal,
+    GetCurrentProposal,
+    ProposeCorrectionEdit,
+    RejectPendingProposals,
+    RejectProposalOperation,
+)
 from soap.extractor import SoapExtractor
+from soap.llm_editor import SoapEditAgent
+from soap.proposal_repository import CorrectionEditorSessionRepository
+from soap.providers import (
+    get_correction_editor_session_repository as _build_editor_session_repository,
+)
 from soap.providers import (
     get_soap_report_correction_repository as _build_correction_repository,
 )
@@ -150,3 +164,71 @@ def get_reopen_soap_correction(
     corrections: CorrectionRepositoryDep,
 ) -> ReopenSoapCorrection:
     return ReopenSoapCorrection(session, corrections)
+
+
+def get_correction_editor_session_repository(
+    session: SessionDep,
+) -> CorrectionEditorSessionRepository:
+    return _build_editor_session_repository(session)
+
+
+EditorSessionRepositoryDep = Annotated[
+    CorrectionEditorSessionRepository, Depends(get_correction_editor_session_repository)
+]
+
+
+@lru_cache
+def _edit_agent() -> SoapEditAgent:
+    return build_soap_edit_agent(get_settings())
+
+
+def get_soap_edit_agent() -> SoapEditAgent:
+    return _edit_agent()
+
+
+def get_propose_correction_edit(
+    session: SessionDep,
+    sessions: EditorSessionRepositoryDep,
+    reports: ReportRepositoryDep,
+    dialogues: DialogueRepositoryDep,
+    agent: Annotated[SoapEditAgent, Depends(get_soap_edit_agent)],
+) -> ProposeCorrectionEdit:
+    return ProposeCorrectionEdit(session, sessions, reports, dialogues, agent)
+
+
+def get_accept_proposal_operation(
+    session: SessionDep,
+    sessions: EditorSessionRepositoryDep,
+    add: Annotated[AddCorrectedNote, Depends(get_add_corrected_note)],
+    update: Annotated[UpdateCorrectedNote, Depends(get_update_corrected_note)],
+    delete: Annotated[DeleteCorrectedNote, Depends(get_delete_corrected_note)],
+) -> AcceptProposalOperation:
+    return AcceptProposalOperation(session, sessions, add, update, delete)
+
+
+def get_reject_proposal_operation(
+    session: SessionDep,
+    sessions: EditorSessionRepositoryDep,
+) -> RejectProposalOperation:
+    return RejectProposalOperation(session, sessions)
+
+
+def get_reject_pending_proposals(
+    session: SessionDep,
+    sessions: EditorSessionRepositoryDep,
+) -> RejectPendingProposals:
+    return RejectPendingProposals(session, sessions)
+
+
+def get_ensure_no_pending_proposal(
+    sessions: EditorSessionRepositoryDep,
+) -> EnsureNoPendingProposal:
+    return EnsureNoPendingProposal(sessions)
+
+
+def get_current_proposal(sessions: EditorSessionRepositoryDep) -> GetCurrentProposal:
+    return GetCurrentProposal(sessions)
+
+
+def get_acceptance_metric(sessions: EditorSessionRepositoryDep) -> ComputeAcceptanceMetric:
+    return ComputeAcceptanceMetric(sessions)

@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .correction_repository import SoapReportCorrectionRepository
 from .correction_sqlalchemy_repository import SqlAlchemySoapReportCorrectionRepository
+from .proposal_repository import CorrectionEditorSessionRepository
+from .proposal_sqlalchemy_repository import SqlAlchemyCorrectionEditorSessionRepository
 from .repository import SoapReportRepository
 from .sqlalchemy_repository import SqlAlchemySoapReportRepository
 
@@ -23,3 +25,9 @@ def get_soap_report_correction_repository(
     session: AsyncSession,
 ) -> SoapReportCorrectionRepository:
     return SqlAlchemySoapReportCorrectionRepository(session)
+
+
+def get_correction_editor_session_repository(
+    session: AsyncSession,
+) -> CorrectionEditorSessionRepository:
+    return SqlAlchemyCorrectionEditorSessionRepository(session)

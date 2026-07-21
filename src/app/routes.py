@@ -8,6 +8,7 @@ report is safe to retry: it returns the stored report without a second LLM call.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -35,10 +36,23 @@ from soap.correction_use_cases import (
     VerifySoapCorrection,
     VerifySoapCorrectionCommand,
 )
+from soap.editor_use_cases import (
+    AcceptanceMetricQuery,
+    AcceptProposalOperation,
+    ComputeAcceptanceMetric,
+    DecideOperationCommand,
+    EnsureNoPendingProposal,
+    GetCurrentProposal,
+    ProposeCorrectionEdit,
+    RejectPendingProposals,
+    RejectProposalOperation,
+)
 from soap.quality_use_cases import GetDialogueSoapQuality
 from soap.repository import SoapReportRepository
 from soap.serialization import (
+    acceptance_metric_to_dict,
     correction_to_dict,
+    proposal_to_dict,
     quality_to_dict,
     report_summary_to_dict,
     report_to_dict,
@@ -59,13 +73,20 @@ from soap.use_cases import (
 
 from .dependencies import (
     SessionDep,
+    get_accept_proposal_operation,
+    get_acceptance_metric,
     get_add_corrected_note,
     get_add_dialogue,
     get_correction_repository,
+    get_current_proposal,
     get_delete_corrected_note,
     get_dialogue_repository,
     get_dialogue_soap_quality,
+    get_ensure_no_pending_proposal,
     get_extract_soap_report,
+    get_propose_correction_edit,
+    get_reject_pending_proposals,
+    get_reject_proposal_operation,
     get_reopen_soap_correction,
     get_soap_report_repository,
     get_start_soap_correction,
@@ -231,6 +252,11 @@ async def get_correction(
     return correction_to_dict(correction)
 
 
+RejectPendingDep = Annotated[RejectPendingProposals, Depends(get_reject_pending_proposals)]
+
+_DOCTOR_EDIT = "doctor_edit"
+
+
 @router.put("/reports/{report_id}/correction/notes/{note_id}", tags=["corrections"])
 async def update_note(
     report_id: UUID,
@@ -239,6 +265,7 @@ async def update_note(
     session: SessionDep,
     corrections: CorrectionRepositoryDep,
     update: Annotated[UpdateCorrectedNote, Depends(get_update_corrected_note)],
+    reject_pending: RejectPendingDep,
 ) -> dict[str, Any]:
     """Replace a corrected note's sections, citations and Assessment ICD."""
     correction = await _resolve_correction(corrections, report_id)
@@ -248,6 +275,7 @@ async def update_note(
             correction_id=correction.id, note_id=note_key, **_sections(payload)
         )
     )
+    await reject_pending.execute(correction, reason=_DOCTOR_EDIT)
     await session.commit()
     return await _reload(corrections, correction.id)
 
@@ -259,10 +287,12 @@ async def add_note(
     session: SessionDep,
     corrections: CorrectionRepositoryDep,
     add: Annotated[AddCorrectedNote, Depends(get_add_corrected_note)],
+    reject_pending: RejectPendingDep,
 ) -> dict[str, Any]:
     """Add a doctor-authored note (no source lineage) to the correction."""
     correction = await _resolve_correction(corrections, report_id)
     await add.execute(AddCorrectedNoteCommand(correction_id=correction.id, **_sections(payload)))
+    await reject_pending.execute(correction, reason=_DOCTOR_EDIT)
     await session.commit()
     return await _reload(corrections, correction.id)
 
@@ -274,11 +304,13 @@ async def delete_note(
     session: SessionDep,
     corrections: CorrectionRepositoryDep,
     delete: Annotated[DeleteCorrectedNote, Depends(get_delete_corrected_note)],
+    reject_pending: RejectPendingDep,
 ) -> dict[str, Any]:
     """Drop a note from the doctor's version of the correction."""
     correction = await _resolve_correction(corrections, report_id)
     note_key: SoapNoteId = Id(note_id)
     await delete.execute(DeleteCorrectedNoteCommand(correction_id=correction.id, note_id=note_key))
+    await reject_pending.execute(correction, reason=_DOCTOR_EDIT)
     await session.commit()
     return await _reload(corrections, correction.id)
 
@@ -290,9 +322,11 @@ async def verify_correction(
     session: SessionDep,
     corrections: CorrectionRepositoryDep,
     verify: Annotated[VerifySoapCorrection, Depends(get_verify_soap_correction)],
+    ensure_no_pending: Annotated[EnsureNoPendingProposal, Depends(get_ensure_no_pending_proposal)],
 ) -> dict[str, Any]:
     """Move the correction DRAFT → VERIFIED under the given ``doctor_id``."""
     correction = await _resolve_correction(corrections, report_id)
+    await ensure_no_pending.execute(correction)
     verified = await verify.execute(
         VerifySoapCorrectionCommand(correction_id=correction.id, doctor_id=payload.doctor_id)
     )
@@ -312,6 +346,96 @@ async def reopen_correction(
     reopened = await reopen.execute(ReopenSoapCorrectionCommand(correction_id=correction.id))
     await session.commit()
     return correction_to_dict(reopened)
+
+
+class ProposeEditPayload(BaseModel):
+    user_request: str
+    patient_id: str
+
+
+@router.post("/reports/{report_id}/correction/editor/proposals", status_code=201, tags=["editor"])
+async def create_proposal(
+    report_id: UUID,
+    payload: ProposeEditPayload,
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    propose: Annotated[ProposeCorrectionEdit, Depends(get_propose_correction_edit)],
+) -> dict[str, Any]:
+    """Draft an LLM edit of the report's correction; persist PENDING ops, apply nothing."""
+    correction = await _resolve_correction(corrections, report_id)
+    proposal = await propose.execute(
+        correction, user_request=payload.user_request, patient_id=payload.patient_id
+    )
+    await session.commit()
+    return proposal_to_dict(proposal)
+
+
+@router.get("/reports/{report_id}/correction/editor/proposals", tags=["editor"])
+async def get_proposal(
+    report_id: UUID,
+    corrections: CorrectionRepositoryDep,
+    current: Annotated[GetCurrentProposal, Depends(get_current_proposal)],
+) -> dict[str, Any]:
+    """Return the active proposal (or the most recent one) with each op's diff and decision."""
+    correction = await _resolve_correction(corrections, report_id)
+    proposal = await current.execute(correction)
+    return proposal_to_dict(proposal)
+
+
+@router.post(
+    "/reports/{report_id}/correction/editor/proposals/{proposal_id}/operations/{operation_id}/accept",
+    tags=["editor"],
+)
+async def accept_operation(
+    report_id: UUID,
+    proposal_id: UUID,
+    operation_id: UUID,
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    accept: Annotated[AcceptProposalOperation, Depends(get_accept_proposal_operation)],
+) -> dict[str, Any]:
+    """Accept one operation and apply it through the #8 correction use cases."""
+    correction = await _resolve_correction(corrections, report_id)
+    proposal = await accept.execute(correction, _decide(proposal_id, operation_id))
+    await session.commit()
+    return proposal_to_dict(proposal)
+
+
+@router.post(
+    "/reports/{report_id}/correction/editor/proposals/{proposal_id}/operations/{operation_id}/reject",
+    tags=["editor"],
+)
+async def reject_operation(
+    report_id: UUID,
+    proposal_id: UUID,
+    operation_id: UUID,
+    session: SessionDep,
+    corrections: CorrectionRepositoryDep,
+    reject: Annotated[RejectProposalOperation, Depends(get_reject_proposal_operation)],
+) -> dict[str, Any]:
+    """Reject one operation, leaving the correction unchanged."""
+    correction = await _resolve_correction(corrections, report_id)
+    proposal = await reject.execute(correction, _decide(proposal_id, operation_id))
+    await session.commit()
+    return proposal_to_dict(proposal)
+
+
+@router.get("/reports/{report_id}/correction/editor/metric", tags=["editor"])
+async def get_editor_metric(
+    report_id: UUID,
+    corrections: CorrectionRepositoryDep,
+    metric: Annotated[ComputeAcceptanceMetric, Depends(get_acceptance_metric)],
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> dict[str, Any]:
+    """Return the operation-level acceptance metric of the report's editor session."""
+    correction = await _resolve_correction(corrections, report_id)
+    result = await metric.execute(correction, AcceptanceMetricQuery(since=since, until=until))
+    return acceptance_metric_to_dict(result)
+
+
+def _decide(proposal_id: UUID, operation_id: UUID) -> DecideOperationCommand:
+    return DecideOperationCommand(proposal_id=Id(proposal_id), operation_id=Id(operation_id))
 
 
 async def _resolve_correction(

@@ -25,6 +25,18 @@ from soap.correction_use_cases import (
     CorrectionNotFoundError,
     SourceReportNotFoundError,
 )
+from soap.editor_use_cases import PendingOperationsBlockVerify, ProposalNotFoundError
+from soap.llm_editor import InvalidProposalError
+from soap.proposal import (
+    ActiveProposalExists,
+    ConflictingDecision,
+    CorrectionNotProposable,
+    DuplicateOperationTarget,
+    EmptyProposal,
+    OperationNotInProposal,
+    StaleOperationTarget,
+    UnknownProposalTarget,
+)
 from soap.quality import CorrectionNotVerifiedError
 from soap.quality_use_cases import (
     DialogueReportNotFoundError,
@@ -54,6 +66,17 @@ _ERROR_MAP: list[tuple[type[Exception], int, str]] = [
     (CitationNotInSourceDialogue, 422, "citation_not_in_source_dialogue"),
     (EmptyDoctorId, 422, "empty_doctor_id"),
     (DuplicateSourceNote, 422, "duplicate_source_note"),
+    (ProposalNotFoundError, 404, "proposal_not_found"),
+    (OperationNotInProposal, 404, "operation_not_found"),
+    (ActiveProposalExists, 409, "active_proposal_exists"),
+    (CorrectionNotProposable, 409, "correction_not_proposable"),
+    (StaleOperationTarget, 409, "stale_operation_target"),
+    (ConflictingDecision, 409, "conflicting_decision"),
+    (PendingOperationsBlockVerify, 409, "pending_operations_block_verify"),
+    (InvalidProposalError, 422, "invalid_generated_content"),
+    (EmptyProposal, 422, "invalid_generated_content"),
+    (UnknownProposalTarget, 422, "invalid_generated_content"),
+    (DuplicateOperationTarget, 422, "invalid_generated_content"),
 ]
 
 
