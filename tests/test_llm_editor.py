@@ -57,9 +57,12 @@ _LATER = datetime(2026, 7, 21, 10, 0, tzinfo=UTC)
 class FakeLlmClient(LlmClient):
     """Mock LLM: returns a canned payload and records the last call's prompt."""
 
-    def __init__(self, payload: dict[str, Any], *, fail: bool = False) -> None:
+    def __init__(
+        self, payload: dict[str, Any], *, fail: bool = False, error: Exception | None = None
+    ) -> None:
         self._payload = payload
         self._fail = fail
+        self._error = error
         self.instructions: str | None = None
         self.prompt: str | None = None
         self.schema: dict[str, Any] | None = None
@@ -70,6 +73,8 @@ class FakeLlmClient(LlmClient):
         self.instructions = instructions
         self.prompt = prompt
         self.schema = schema
+        if self._error is not None:
+            raise self._error
         if self._fail:
             raise TimeoutError("model unavailable")
         return self._payload
@@ -212,6 +217,27 @@ def test_unknown_citation_turn_is_rejected() -> None:
     with pytest.raises(InvalidProposalError) as excinfo:
         _propose(_agent(FakeLlmClient(payload)), _context(report, correction, session))
     assert excinfo.value.reason == "unknown_citation_turn"
+
+
+def test_unparseable_model_output_is_invalid_content_not_an_outage() -> None:
+    # The model returned unparseable JSON (a ValueError from complete_json). That is
+    # invalid generated content (InvalidProposalError -> 422), not a transport
+    # failure (SoapEditError -> 503) — so a runaway 4B response degrades cleanly.
+    report, correction, session = _fixtures()
+    client = FakeLlmClient(_payload(), error=ValueError("Expecting ',' delimiter"))
+
+    with pytest.raises(InvalidProposalError) as excinfo:
+        _propose(_agent(client), _context(report, correction, session))
+    assert excinfo.value.reason == "unparseable_output"
+
+
+def test_transport_failure_surfaces_as_soap_edit_error() -> None:
+    report, correction, session = _fixtures()
+    client = FakeLlmClient(_payload(), fail=True)  # TimeoutError, not a ValueError
+
+    with pytest.raises(SoapEditError) as excinfo:
+        _propose(_agent(client), _context(report, correction, session))
+    assert not isinstance(excinfo.value, InvalidProposalError)
 
 
 def test_two_operations_on_the_same_note_are_rejected() -> None:
