@@ -63,7 +63,7 @@ def calculate_soap_report_diff(
     regardless of dictionary ordering.  Added and removed notes are counted but
     omitted from ``note_diffs`` and from both change aggregates.
     """
-    if correction.status is not CorrectionStatus.VERIFIED:
+    if correction.status is CorrectionStatus.DRAFT:
         raise CorrectionNotVerifiedError("SOAP quality requires a verified correction")
     if correction.source_report_id != source.id:
         raise CorrectionSourceMismatchError(

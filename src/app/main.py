@@ -23,7 +23,9 @@ from app.middleware import RequestLoggingMiddleware
 from app.routes import router
 from config.logging import configure_logging
 from config.settings import get_settings
-from infra.db import dispose_engine
+from ehr.dispatcher import PublicationDispatcher
+from infra.db import dispose_engine, get_sessionmaker
+from infra.fhir import build_fhir_publication_gateway
 from infra.migrations import run_migrations
 
 
@@ -32,8 +34,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Configure logging, migrate the database, then release the pool on exit."""
     configure_logging()
     await _apply_migrations()
-    yield
-    await dispose_engine()
+    settings = get_settings()
+    stop = asyncio.Event()
+    gateway = None
+    task = None
+    if settings.fhir_dispatcher_enabled and settings.database_url is not None:
+        gateway = build_fhir_publication_gateway(settings)
+        dispatcher = PublicationDispatcher(
+            get_sessionmaker(),
+            gateway,
+            batch_size=settings.fhir_dispatcher_batch_size,
+            poll_seconds=settings.fhir_dispatcher_poll_seconds,
+            retry_initial_seconds=settings.fhir_retry_initial_seconds,
+            retry_max_seconds=settings.fhir_retry_max_seconds,
+        )
+        task = asyncio.create_task(dispatcher.run_forever(stop))
+        app.state.publication_dispatcher = dispatcher
+    try:
+        yield
+    finally:
+        stop.set()
+        if task is not None:
+            await task
+        if gateway is not None:
+            await gateway.aclose()
+        await dispose_engine()
 
 
 async def _apply_migrations() -> None:

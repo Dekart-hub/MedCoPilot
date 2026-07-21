@@ -48,7 +48,17 @@ class SqlAlchemySoapReportCorrectionRepository(SoapReportCorrectionRepository):
     async def get_by_source_report_id(self, report_id: SoapReportId) -> SoapReportCorrection | None:
         return await self._fetch(SoapCorrectionRow.source_report_id == report_id.value)
 
-    async def _fetch(self, condition: object) -> SoapReportCorrection | None:
+    async def get_by_source_report_id_for_update(
+        self, report_id: SoapReportId
+    ) -> SoapReportCorrection | None:
+        return await self._fetch(
+            SoapCorrectionRow.source_report_id == report_id.value,
+            for_update=True,
+        )
+
+    async def _fetch(
+        self, condition: object, *, for_update: bool = False
+    ) -> SoapReportCorrection | None:
         statement = (
             select(SoapCorrectionRow)
             .where(condition)  # type: ignore[arg-type]
@@ -56,6 +66,8 @@ class SqlAlchemySoapReportCorrectionRepository(SoapReportCorrectionRepository):
                 selectinload(SoapCorrectionRow.notes).selectinload(SoapCorrectedNoteRow.claims)
             )
         )
+        if for_update:
+            statement = statement.with_for_update()
         row = (await self._session.execute(statement)).scalar_one_or_none()
         return _to_domain(row) if row is not None else None
 

@@ -77,7 +77,7 @@ class ProposalError(Exception):
 
 
 class CorrectionNotProposable(ProposalError):
-    """Raised when a proposal is formed against a verified (locked) correction."""
+    """Raised when a proposal is formed against a non-draft correction."""
 
 
 class ActiveProposalExists(ProposalError):
@@ -359,8 +359,10 @@ class CorrectionEditorSession(Entity[SessionId]):
             raise WrongCorrection("proposal correction does not match the session")
 
     def _guard_proposable(self, correction: SoapReportCorrection) -> None:
-        if correction.status is CorrectionStatus.VERIFIED:
-            raise CorrectionNotProposable("a verified correction does not accept proposals")
+        if correction.status is not CorrectionStatus.DRAFT:
+            raise CorrectionNotProposable(
+                f"a correction in {correction.status.value} state does not accept proposals"
+            )
 
     def _guard_no_active_proposal(self) -> None:
         if self.active_proposal() is not None:
