@@ -30,14 +30,18 @@ from dialogue.dialogue import Dialogue, DialogueId
 from dialogue.repository import DialogueRepository
 from infra.db import get_session
 from shared.value_objects import Id
-from soap.correction import CorrectionId, SoapReportCorrection
+from soap.correction import CorrectedNote, CorrectionId, SoapReportCorrection
 from soap.correction_repository import SoapReportCorrectionRepository
 from soap.correction_use_cases import (
     AddCorrectedNote,
     DeleteCorrectedNote,
     UpdateCorrectedNote,
 )
-from soap.editor_use_cases import AcceptProposalOperation, DecideOperationCommand
+from soap.editor_use_cases import (
+    AcceptProposalOperation,
+    DecideOperationCommand,
+    _icd_by_diagnosis,
+)
 from soap.extractor import SoapExtractor
 from soap.llm_editor import EditContext, InvalidProposalError, ProposalDraft
 from soap.proposal import (
@@ -331,7 +335,11 @@ def test_mixed_decisions_apply_only_the_accepted_operation() -> None:
     assert notes[0]["sections"]["assessment"][0]["text"] == "Tension-type headache, chronic."
 
 
-def test_accepted_update_preserves_the_note_icd() -> None:
+def test_accepted_update_drops_icd_when_the_diagnosis_is_reworded() -> None:
+    # The agent reworded the diagnosis ("Tension headache." -> "Tension-type headache,
+    # chronic."). A code is carried only to an UNCHANGED diagnosis text, so the reworded
+    # one is left uncoded for the doctor to re-code — never silently rebound to a code
+    # that may no longer fit. (The agent itself never proposes ICD.)
     client = _client(_update_coded_note)
     report_id = _seed(client)
     _start(client, report_id)
@@ -343,7 +351,55 @@ def test_accepted_update_preserves_the_note_icd() -> None:
         "assessment"
     ][0]
     assert assessment["text"] == "Tension-type headache, chronic."
+    assert assessment["icd"] is None
+
+
+def _update_same_diagnosis(context: EditContext) -> list[OperationSpec]:
+    claim = ProposedClaim(text="Tension headache.", citations=[_turn_of(context)])
+    return [
+        UpdateNoteOperation(
+            target_note_id=context.correction.notes[0].id,
+            content=ProposedNote(assessment=[claim]),
+        )
+    ]
+
+
+def test_accepted_update_keeps_icd_for_an_unchanged_diagnosis_text() -> None:
+    # Same diagnosis text -> the existing code is preserved (matched by text, not by
+    # list position), so an edit that leaves the diagnosis intact keeps its ICD.
+    client = _client(_update_same_diagnosis)
+    report_id = _seed(client)
+    _start(client, report_id)
+    proposal = _propose(client, report_id).json()
+
+    _decide(client, report_id, proposal["id"], proposal["operations"][0]["id"], "accept")
+
+    assessment = client.get(f"/reports/{report_id}/correction").json()["notes"][0]["sections"][
+        "assessment"
+    ][0]
+    assert assessment["text"] == "Tension headache."
     assert assessment["icd"]["code"] == _ICD.code
+
+
+def test_icd_is_carried_by_diagnosis_text_so_reorder_never_swaps_codes() -> None:
+    # The anti-misbind core: codes are keyed by diagnosis text, so a proposed reorder
+    # keeps each code with its own diagnosis and a new diagnosis stays uncoded.
+    i10 = IcdCoding(code="I10", name="Hypertension", classifier_url="u")
+    e11 = IcdCoding(code="E11", name="Diabetes", classifier_url="u")
+    cite = TurnCitation(turn_id=Id.new())
+    note = CorrectedNote(
+        id=Id.new(),
+        assessment=[
+            AssessmentClaim(id=Id.new(), text="Hypertension", citations=[cite], icd=i10),
+            AssessmentClaim(id=Id.new(), text="Diabetes", citations=[cite], icd=e11),
+        ],
+    )
+
+    mapping = _icd_by_diagnosis(note)
+
+    assert mapping["Hypertension"].code == "I10"
+    assert mapping["Diabetes"].code == "E11"
+    assert mapping.get("Migraine") is None
 
 
 def test_icd_unchanged_end_to_end_propose_mixed_verify() -> None:
@@ -362,8 +418,10 @@ def test_icd_unchanged_end_to_end_propose_mixed_verify() -> None:
 
     assert verified.status_code == 200
     assert client.get(f"/reports/{report_id}").json() == original_report  # source never changes
+    # The reworded diagnosis is left uncoded (the agent never sets ICD); the doctor
+    # re-codes it via #8. The point that stands: the SOURCE report's ICD never changes.
     note = client.get(f"/reports/{report_id}/correction").json()["notes"][0]
-    assert note["sections"]["assessment"][0]["icd"]["code"] == _ICD.code
+    assert note["sections"]["assessment"][0]["icd"] is None
 
 
 def test_verify_is_blocked_while_an_operation_is_pending() -> None:
