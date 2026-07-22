@@ -22,6 +22,7 @@ from openai.types.chat import (
 from config.settings import Settings
 from ehr.client import EhrClient
 from icd.coder import IcdCoder
+from icd.resolver import IcdResolver
 from infra.ehr import build_ehr_client
 from infra.nli import build_nli_confidence_scorer
 from infra.vllm.deployment import MEDGEMMA_4B
@@ -98,12 +99,15 @@ def build_llm_extractor(
     settings: Settings,
     scorer: ConfidenceScorer | None = None,
     coder: IcdCoder | None = None,
+    resolver: IcdResolver | None = None,
 ) -> LlmSoapExtractor:
-    """Wire the LLM client, confidence scorer and ICD coder into a SOAP extractor.
+    """Wire the LLM client, confidence scorer and ICD coding into a SOAP extractor.
 
-    ``coder`` is optional: left ``None``, assessment claims are extracted without
-    ICD codings (backward-compatible default). ``scorer`` is opt-in: an explicit
-    scorer wins; otherwise the NLI scorer is used only when
+    ``resolver`` (T29) wins over ``coder`` (T10) when both are given: it fills
+    the claim's full resolution and mirrors the selected coding into ``icd``.
+    Left both ``None``, assessment claims are extracted without ICD codings
+    (backward-compatible default). ``scorer`` is opt-in: an explicit scorer
+    wins; otherwise the NLI scorer is used only when
     ``settings.nli_confidence_enabled`` is set, and the default stays
     :class:`NullConfidenceScorer` (no tokenizer download).
     """
@@ -111,6 +115,7 @@ def build_llm_extractor(
         build_llm_client(settings),
         scorer or _default_scorer(settings),
         coder=coder,
+        resolver=resolver,
     )
 
 

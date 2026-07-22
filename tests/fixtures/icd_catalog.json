@@ -1,0 +1,13 @@
+[
+  {"code": "I10", "name": "Essential (primary) hypertension"},
+  {"code": "I10", "name": "High blood pressure"},
+  {"code": "E11.9", "name": "Type 2 diabetes mellitus without complications"},
+  {"code": "E11.65", "name": "Type 2 diabetes mellitus with hyperglycemia"},
+  {"code": "E10.9", "name": "Type 1 diabetes mellitus without complications"},
+  {"code": "J18.9", "name": "Pneumonia, unspecified organism"},
+  {"code": "J18.0", "name": "Bronchopneumonia, unspecified organism", "active": false},
+  {"code": "J20.9", "name": "Acute bronchitis, unspecified"},
+  {"code": "M54.5", "name": "Low back pain"},
+  {"code": "M54.50", "name": "Low back pain, unspecified"},
+  {"code": "N39.0", "name": "Urinary tract infection, site not specified"}
+]

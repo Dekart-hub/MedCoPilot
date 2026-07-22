@@ -32,6 +32,9 @@ from pathlib import Path
 
 # Pin a specific documented release for reproducibility; bump as CMS publishes.
 _SOURCE_URL = "https://www.cms.gov/files/zip/2024-code-descriptions-tabular-order.zip"
+# Keep in lockstep with the pinned URL: this string becomes the
+# ``classifier_version`` stamped on every resolution made over this dictionary.
+_VERSION = "icd10cm-2024-cms"
 _DEFAULT_OUT = Path("data/icd10.json")
 
 
@@ -67,7 +70,10 @@ def main() -> None:
     entries = fetch()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {len(entries)} ICD-10 codes to {args.out}")
+    meta = {"source": _SOURCE_URL, "version": _VERSION, "count": len(entries)}
+    meta_path = args.out.with_suffix(".meta.json")
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {len(entries)} ICD-10 codes to {args.out} (version {_VERSION})")
 
 
 if __name__ == "__main__":

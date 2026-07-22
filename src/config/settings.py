@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     nli_prompt: str | None = None
     nli_prompt_suffix: str | None = None
 
+    # ICD resolution (T29). Unset path ⇒ the curated sample bundled with the
+    # package; point it at a fuller dictionary materialised by
+    # ``scripts/fetch_icd.py`` for real coding coverage.
+    icd_dictionary_path: Path | None = None
+    icd_top_k: int = 10
+
     # Path to the mock EHR's ``patient_id -> context`` JSON. Unset ⇒ the bundled
     # fixture wired by ``infra.ehr.build_ehr_client``.
     ehr_mock_path: Path | None = None

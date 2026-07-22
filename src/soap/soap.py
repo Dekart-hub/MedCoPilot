@@ -59,6 +59,48 @@ class IcdCoding:
     classifier_url: str
 
 
+class IcdResolutionStatus(StrEnum):
+    """Outcome of resolving an assessment text against the ICD catalog (T29).
+
+    ``AMBIGUOUS`` is reserved: phase 1 always selects the top candidate, the
+    score/margin gates that produce it arrive with phase 2. The member ships
+    now so the wire and storage values are frozen before the behaviour lands.
+    """
+
+    RESOLVED = "resolved"
+    AMBIGUOUS = "ambiguous"
+    NOT_FOUND = "not_found"
+
+
+@dataclass(frozen=True, slots=True)
+class IcdCandidate:
+    """One ranked entry from the resolver's candidate pool.
+
+    ``bm25_score`` is a raw lexical ranking signal, not a probability — it is
+    only meaningful relative to the other candidates of the same resolution.
+    """
+
+    code: str
+    name: str
+    rank: int
+    bm25_score: float
+
+
+@dataclass(frozen=True, slots=True)
+class IcdResolution:
+    """The full outcome of ICD resolution for one assessment claim.
+
+    Keeps the audit trail next to the decision: the ordered candidate pool the
+    ``selected`` coding was chosen from, and the classifier version it was
+    chosen against.
+    """
+
+    status: IcdResolutionStatus
+    selected: IcdCoding | None
+    candidates: tuple[IcdCandidate, ...]
+    classifier_version: str
+
+
 @dataclass(eq=False, slots=True)
 class SoapClaim(Entity[SoapClaimId]):
     """A single extracted statement, traceable to its source turn(s).
@@ -78,9 +120,16 @@ class SoapClaim(Entity[SoapClaimId]):
 
 @dataclass(eq=False, slots=True)
 class AssessmentClaim(SoapClaim):
-    """An Assessment-section claim that may carry an ICD coding (set in T10)."""
+    """An Assessment-section claim that may carry an ICD coding (set in T10).
+
+    ``icd_resolution`` (T29) records how the coding was chosen: status, the
+    ranked candidate pool and the classifier version. ``icd`` stays the single
+    source of the chosen code — a manual correction may replace it while the
+    resolution keeps describing the original automated pass.
+    """
 
     icd: IcdCoding | None = None
+    icd_resolution: IcdResolution | None = None
 
 
 @dataclass(eq=False, slots=True)
