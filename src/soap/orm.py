@@ -75,4 +75,9 @@ class SoapClaimRow(Base):
     icd_code: Mapped[str | None] = mapped_column(String(32))
     icd_name: Mapped[str | None] = mapped_column(Text())
     icd_classifier_url: Mapped[str | None] = mapped_column(Text())
+    # T29: how the coding was chosen — status, ranked candidate pool (JSON,
+    # mirroring how citations are stored) and the classifier version.
+    icd_status: Mapped[str | None] = mapped_column(String(16))
+    icd_classifier_version: Mapped[str | None] = mapped_column(String(64))
+    icd_candidates: Mapped[list[dict[str, object]] | None] = mapped_column(JSON(), nullable=True)
     note: Mapped[SoapNoteRow] = relationship(back_populates="claims")

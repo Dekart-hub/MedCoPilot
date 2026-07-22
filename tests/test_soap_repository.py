@@ -23,7 +23,10 @@ from shared.value_objects import Id
 from soap.orm import SoapReportRow
 from soap.soap import (
     AssessmentClaim,
+    IcdCandidate,
     IcdCoding,
+    IcdResolution,
+    IcdResolutionStatus,
     SoapClaim,
     SoapNote,
     SoapReport,
@@ -44,6 +47,18 @@ _ICD = IcdCoding(
     classifier_url="https://icd.who.int/browse10/2019/en#/I10",
 )
 
+_RESOLUTION = IcdResolution(
+    status=IcdResolutionStatus.RESOLVED,
+    selected=_ICD,
+    candidates=(
+        IcdCandidate(code="I10", name=_ICD.name, rank=1, bm25_score=7.25),
+        IcdCandidate(
+            code="I15.9", name="Secondary hypertension, unspecified", rank=2, bm25_score=3.5
+        ),
+    ),
+    classifier_version="icd10-2019-sample",
+)
+
 
 def _dialogue_and_report() -> tuple[Dialogue, SoapReport]:
     dialogue = Dialogue.start()
@@ -56,7 +71,13 @@ def _dialogue_and_report() -> tuple[Dialogue, SoapReport]:
         subjective=[SoapClaim(id=Id.new(), text="Headache for three days.", citations=[quoted])],
         objective=[SoapClaim(id=Id.new(), text="BP 140/90.", citations=[bare])],
         assessment=[
-            AssessmentClaim(id=Id.new(), text="Hypertension.", citations=[quoted, bare], icd=_ICD)
+            AssessmentClaim(
+                id=Id.new(),
+                text="Hypertension.",
+                citations=[quoted, bare],
+                icd=_ICD,
+                icd_resolution=_RESOLUTION,
+            )
         ],
         plan=[SoapClaim(id=Id.new(), text="Start lisinopril.", citations=[bare])],
         confidence=0.91,
@@ -93,6 +114,9 @@ def test_report_round_trips_through_the_database() -> None:
 
     assessment = note.assessment[0]
     assert assessment.icd == _ICD
+    # T29: the resolution — status, ranked candidates, classifier version —
+    # survives the round-trip bit-for-bit.
+    assert assessment.icd_resolution == _RESOLUTION
     assert [(c.turn_id, c.quote) for c in assessment.citations] == [
         (dialogue.turns[0].id, "headache"),
         (dialogue.turns[1].id, None),

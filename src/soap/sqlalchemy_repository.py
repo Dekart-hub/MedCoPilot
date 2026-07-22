@@ -21,7 +21,10 @@ from .orm import SoapClaimRow, SoapNoteRow, SoapReportRow
 from .repository import ReportSummary, SoapReportRepository
 from .soap import (
     AssessmentClaim,
+    IcdCandidate,
     IcdCoding,
+    IcdResolution,
+    IcdResolutionStatus,
     SoapClaim,
     SoapNote,
     SoapReport,
@@ -104,6 +107,7 @@ def _note_to_row(note: SoapNote, position: int) -> SoapNoteRow:
 
 def _claim_to_row(claim: SoapClaim, section: SoapSection, position: int) -> SoapClaimRow:
     icd = claim.icd if isinstance(claim, AssessmentClaim) else None
+    resolution = claim.icd_resolution if isinstance(claim, AssessmentClaim) else None
     return SoapClaimRow(
         id=claim.id.value,
         position=position,
@@ -113,11 +117,27 @@ def _claim_to_row(claim: SoapClaim, section: SoapSection, position: int) -> Soap
         icd_code=icd.code if icd is not None else None,
         icd_name=icd.name if icd is not None else None,
         icd_classifier_url=icd.classifier_url if icd is not None else None,
+        icd_status=resolution.status.value if resolution is not None else None,
+        icd_classifier_version=resolution.classifier_version if resolution is not None else None,
+        icd_candidates=(
+            [_candidate_to_json(candidate) for candidate in resolution.candidates]
+            if resolution is not None
+            else None
+        ),
     )
 
 
 def _citation_to_json(citation: TurnCitation) -> dict[str, str | None]:
     return {"turn_id": str(citation.turn_id), "quote": citation.quote}
+
+
+def _candidate_to_json(candidate: IcdCandidate) -> dict[str, object]:
+    return {
+        "code": candidate.code,
+        "name": candidate.name,
+        "rank": candidate.rank,
+        "bm25_score": candidate.bm25_score,
+    }
 
 
 def _to_domain(row: SoapReportRow) -> SoapReport:
@@ -152,6 +172,7 @@ def _assessment_to_domain(row: SoapClaimRow) -> AssessmentClaim:
         text=row.text,
         citations=_citations_to_domain(row.citations),
         icd=_icd_to_domain(row),
+        icd_resolution=_resolution_to_domain(row),
     )
 
 
@@ -159,6 +180,27 @@ def _icd_to_domain(row: SoapClaimRow) -> IcdCoding | None:
     if row.icd_code is None or row.icd_name is None or row.icd_classifier_url is None:
         return None
     return IcdCoding(code=row.icd_code, name=row.icd_name, classifier_url=row.icd_classifier_url)
+
+
+def _resolution_to_domain(row: SoapClaimRow) -> IcdResolution | None:
+    # Pre-T29 rows (and manual codings) carry no status: no resolution to rebuild.
+    if row.icd_status is None:
+        return None
+    return IcdResolution(
+        status=IcdResolutionStatus(row.icd_status),
+        selected=_icd_to_domain(row),
+        candidates=tuple(_candidate_to_domain(entry) for entry in (row.icd_candidates or [])),
+        classifier_version=row.icd_classifier_version or "",
+    )
+
+
+def _candidate_to_domain(entry: dict[str, object]) -> IcdCandidate:
+    return IcdCandidate(
+        code=str(entry["code"]),
+        name=str(entry["name"]),
+        rank=int(entry["rank"]),  # type: ignore[call-overload]
+        bm25_score=float(entry["bm25_score"]),  # type: ignore[arg-type]
+    )
 
 
 def _citations_to_domain(data: list[dict[str, str | None]]) -> list[TurnCitation]:
