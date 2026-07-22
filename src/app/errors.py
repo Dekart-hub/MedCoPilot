@@ -27,6 +27,7 @@ from ehr.publication_use_cases import (
     PublicationSourceDialogueNotFoundError,
     PublicationSourceReportNotFoundError,
 )
+from icd.resolver import IcdTitleMismatch, InactiveIcdCode, UnknownIcdCode
 from soap.correction import (
     CorrectionInvalidTransition,
     CorrectionNotEditable,
@@ -80,6 +81,9 @@ _ERROR_MAP: list[tuple[type[Exception], int, str]] = [
     (CitationNotInSourceDialogue, 422, "citation_not_in_source_dialogue"),
     (EmptyDoctorId, 422, "empty_doctor_id"),
     (DuplicateSourceNote, 422, "duplicate_source_note"),
+    (UnknownIcdCode, 422, "unknown_icd_code"),
+    (InactiveIcdCode, 422, "inactive_icd_code"),
+    (IcdTitleMismatch, 422, "icd_title_mismatch"),
     (ProposalNotFoundError, 404, "proposal_not_found"),
     (OperationNotInProposal, 404, "operation_not_found"),
     (ActiveProposalExists, 409, "active_proposal_exists"),

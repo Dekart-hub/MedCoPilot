@@ -41,10 +41,10 @@ from soap.soap import (
 )
 
 _SOURCE_ICD = IcdCoding("G44.2", "Tension headache", "https://icd/G44.2")
+# Goes through the correction API ⇒ must be canonical for T29 catalog validation.
 _CORRECTED_ICD = {
     "code": "G43.9",
-    "name": "Migraine",
-    "classifier_url": "https://icd/G43.9",
+    "name": "Migraine, unspecified",
 }
 
 

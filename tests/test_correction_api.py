@@ -44,7 +44,13 @@ from soap.soap import (
 )
 
 _ICD = IcdCoding(code="G44.2", name="Tension-type headache", classifier_url="https://icd/G44.2")
-_NEW_ICD = IcdCoding(code="G43.9", name="Migraine", classifier_url="https://icd/G43.9")
+# The corrected coding goes through the API and must therefore be canonical:
+# T29 validates manual ICD input against the catalog (bundled sample here).
+_NEW_ICD = IcdCoding(
+    code="G43.9",
+    name="Migraine, unspecified",
+    classifier_url="https://icd.who.int/browse10/2019/en#/G43.9",
+)
 
 
 class FakeSession:
@@ -196,7 +202,7 @@ def _recoded_assessment(turn_id: str) -> dict[str, object]:
             {
                 "text": "Migraine.",
                 "citations": [{"turn_id": turn_id}],
-                "icd": {"code": "G43.9", "name": "Migraine", "classifier_url": "https://icd/G43.9"},
+                "icd": {"code": "G43.9", "name": "Migraine, unspecified"},
             }
         ]
     }
@@ -251,6 +257,54 @@ def test_update_replaces_sections_and_icd() -> None:
     note = response.json()["notes"][0]
     assert note["sections"]["assessment"][0]["icd"]["code"] == "G43.9"
     assert note["sections"]["subjective"] == []
+
+
+def test_manual_icd_is_canonicalised_by_the_catalog() -> None:
+    # The client's URL is ignored and the title's case is normalised: what is
+    # stored is the catalog's canonical coding, never the client's variant.
+    client = _client()
+    report_id, turn_id = _seed_report(client)
+    note_id = client.post(f"/reports/{report_id}/correction").json()["notes"][0]["id"]
+    payload = _recoded_assessment(turn_id)
+    assessment = payload["assessment"][0]  # type: ignore[index]
+    assessment["icd"] = {
+        "code": "G43.9",
+        "name": "MIGRAINE, unspecified",
+        "classifier_url": "https://evil.example/phishing",
+    }
+
+    response = client.put(f"/reports/{report_id}/correction/notes/{note_id}", json=payload)
+
+    assert response.status_code == 200
+    stored = response.json()["notes"][0]["sections"]["assessment"][0]["icd"]
+    assert stored["name"] == "Migraine, unspecified"
+    assert stored["classifier_url"] == "https://icd.who.int/browse10/2019/en#/G43.9"
+
+
+def test_unknown_manual_icd_code_is_rejected_with_422() -> None:
+    client = _client()
+    report_id, turn_id = _seed_report(client)
+    note_id = client.post(f"/reports/{report_id}/correction").json()["notes"][0]["id"]
+    payload = _recoded_assessment(turn_id)
+    payload["assessment"][0]["icd"] = {"code": "Q99.99", "name": "Made-up disease"}  # type: ignore[index]
+
+    response = client.put(f"/reports/{report_id}/correction/notes/{note_id}", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "unknown_icd_code"
+
+
+def test_manual_icd_title_mismatch_is_rejected_with_422() -> None:
+    client = _client()
+    report_id, turn_id = _seed_report(client)
+    note_id = client.post(f"/reports/{report_id}/correction").json()["notes"][0]["id"]
+    payload = _recoded_assessment(turn_id)
+    payload["assessment"][0]["icd"] = {"code": "G43.9", "name": "Cluster headache"}  # type: ignore[index]
+
+    response = client.put(f"/reports/{report_id}/correction/notes/{note_id}", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "icd_title_mismatch"
 
 
 def test_add_note_appends_a_doctor_authored_note() -> None:

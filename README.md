@@ -169,7 +169,11 @@ curl -X POST http://localhost:8000/reports/$REPORT_ID/correction
 
 Replace a note's content. Sections mirror the response shape; each claim must
 cite at least one turn of the **source dialogue** (an ungrounded citation is
-rejected), and only Assessment claims carry an `icd`:
+rejected), and only Assessment claims carry an `icd`. A manually entered `icd`
+is validated against the classifier catalog (T29): an unknown or inactive code
+and a title that does not match the canonical one are rejected with 422
+(`unknown_icd_code` / `inactive_icd_code` / `icd_title_mismatch`), and
+`classifier_url` is server-derived — a client-supplied value is ignored:
 
 ```bash
 curl -X PUT http://localhost:8000/reports/$REPORT_ID/correction/notes/$NOTE_ID \
@@ -177,10 +181,9 @@ curl -X PUT http://localhost:8000/reports/$REPORT_ID/correction/notes/$NOTE_ID \
   -d '{
         "assessment": [
           {
-            "text": "Migraine without aura.",
+            "text": "Migraine.",
             "citations": [{"turn_id": "'$TURN_ID'", "quote": "headache for three days"}],
-            "icd": {"code": "G43.0", "name": "Migraine without aura",
-                    "classifier_url": "https://icd/G43.0"}
+            "icd": {"code": "G43.9", "name": "Migraine, unspecified"}
           }
         ],
         "plan": [
@@ -220,6 +223,47 @@ machine-readable `code`:
 | 422 | `citation_not_in_source_dialogue` | A claim cites a turn absent from the source dialogue. |
 | 422 | `empty_doctor_id` | `verify` was called without a non-blank `doctor_id`. |
 | 422 | `duplicate_source_note` | Two corrected notes claim the same source note. |
+| 422 | `unknown_icd_code` | A manual Assessment ICD code is not in the classifier catalog. |
+| 422 | `inactive_icd_code` | A manual Assessment ICD code is retired in the current catalog release. |
+| 422 | `icd_title_mismatch` | A manual ICD title does not match the catalog's canonical title. |
+
+## ICD resolution (T29, phase 1)
+
+Every Assessment claim is coded by an **ICD resolver** — BM25 over the
+classifier dictionary (Volume-style titles), grown from the T10 top-1 coder:
+
+- `IcdResolver.resolve(text)` returns an `IcdResolution`: a `status`
+  (`resolved` / `not_found`; `ambiguous` is reserved for the phase-2
+  score/margin gates), the `selected` coding, the ranked code-deduplicated
+  `candidates[]` pool it was chosen from, and the `classifier_version` of the
+  dictionary. Phase 1 always selects the top candidate when anything matches.
+- The API keeps the `icd` field byte-compatible and **additively** exposes
+  `icd_resolution` (`status`, `classifier_version`, `candidates` with `rank` —
+  the raw BM25 score stays internal: it is a ranking signal, not a
+  probability). Persistence stores the pool and status alongside the claim
+  (migration `0008`), on both extracted and corrected claims.
+- Manually entered codings are validated against the **same catalog** (see the
+  422 rows above) and canonicalised: catalog title, server-derived
+  `classifier_url`.
+- Tokenisation is clinical: Snowball stemming, abbreviation expansion
+  (`t2dm`, `htn`, `copd`, …) and a stopword list that deliberately keeps
+  `with`/`without`/`no`/`not` — they distinguish 4th–5th code characters.
+- No LLM is involved anywhere in resolution.
+
+The bundled dictionary is a small curated sample (fine for demos and CI). For
+real coverage, materialise the full CMS ICD-10-CM release and point the
+resolver at it:
+
+```bash
+uv run python scripts/fetch_icd.py --out data/icd10.json
+# .env:
+#   ICD_DICTIONARY_PATH=data/icd10.json
+#   ICD_TOP_K=10
+```
+
+`fetch_icd.py` writes a `.meta.json` sidecar whose `version` becomes the
+`classifier_version` stamped on every resolution — EHR-grade provenance for
+which release a code was assigned against.
 
 ## LLM SOAP editor (story #12)
 

@@ -18,6 +18,7 @@ from .repository import ReportSummary
 from .soap import (
     AssessmentClaim,
     IcdCoding,
+    IcdResolution,
     SoapClaim,
     SoapNote,
     SoapReport,
@@ -191,6 +192,9 @@ def _claim_to_dict(claim: SoapClaim) -> dict[str, Any]:
     }
     if isinstance(claim, AssessmentClaim):
         data["icd"] = _icd_to_dict(claim.icd) if claim.icd is not None else None
+        data["icd_resolution"] = (
+            _resolution_to_dict(claim.icd_resolution) if claim.icd_resolution is not None else None
+        )
     return data
 
 
@@ -200,3 +204,16 @@ def _citation_to_dict(citation: TurnCitation) -> dict[str, Any]:
 
 def _icd_to_dict(icd: IcdCoding) -> dict[str, str]:
     return {"code": icd.code, "name": icd.name, "classifier_url": icd.classifier_url}
+
+
+def _resolution_to_dict(resolution: IcdResolution) -> dict[str, Any]:
+    # The raw BM25 score stays internal: exposed, it would inevitably be read
+    # as a confidence. Rank carries the ordering to clients.
+    return {
+        "status": resolution.status.value,
+        "classifier_version": resolution.classifier_version,
+        "candidates": [
+            {"code": candidate.code, "name": candidate.name, "rank": candidate.rank}
+            for candidate in resolution.candidates
+        ],
+    }

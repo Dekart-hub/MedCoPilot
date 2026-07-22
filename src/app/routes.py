@@ -27,6 +27,7 @@ from ehr.publication_use_cases import (
     RequestEhrPublicationCommand,
 )
 from ehr.serialization import publication_to_dict
+from icd.dictionary import classifier_url as icd_classifier_url
 from shared.value_objects import Id
 from soap.correction import CorrectionId, SoapReportCorrection
 from soap.correction_repository import SoapReportCorrectionRepository
@@ -212,9 +213,13 @@ class ClaimPayload(BaseModel):
 
 
 class IcdPayload(BaseModel):
+    """A manually entered coding. ``classifier_url`` is accepted for backward
+    compatibility but ignored: the server derives the reference URL from the
+    code, so a client can never store an arbitrary link."""
+
     code: str
     name: str
-    classifier_url: str
+    classifier_url: str | None = None
 
 
 class AssessmentClaimPayload(ClaimPayload):
@@ -499,7 +504,11 @@ def _to_citation(payload: CitationPayload) -> TurnCitation:
 
 
 def _to_icd(payload: IcdPayload) -> IcdCoding:
-    return IcdCoding(code=payload.code, name=payload.name, classifier_url=payload.classifier_url)
+    # The URL is always server-derived; validation against the catalog (and
+    # canonicalisation of the title) happens in the correction use case.
+    return IcdCoding(
+        code=payload.code, name=payload.name, classifier_url=icd_classifier_url(payload.code)
+    )
 
 
 class PublicationPayload(BaseModel):

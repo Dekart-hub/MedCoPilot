@@ -16,6 +16,11 @@ Every added or updated note must stay grounded in the source dialogue: each
 citation's ``turn_id`` is checked against the real turns of the dialogue the
 source report was extracted from, and a stray citation is rejected (→ 422).
 
+A manually entered Assessment ICD is validated against the classifier catalog
+(T29) when one is wired in: an unknown or inactive code and a title that does
+not match the canonical one are rejected (→ 422), and the stored coding is
+canonicalised — catalog title, server-derived classifier URL.
+
 Each successful mutation persists the intermediate state (``save`` + ``flush``);
 the caller (T21's API) owns the commit. Timestamps come from the application
 clock and are injected into the pure domain, which never reads the wall clock.
@@ -32,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dialogue.dialogue import DialogueTurnId
 from dialogue.repository import DialogueRepository
+from icd.resolver import IcdCatalog, validate_manual_icd
 
 from .correction import CorrectedNote, CorrectionId, SoapReportCorrection
 from .correction_repository import SoapReportCorrectionRepository
@@ -186,10 +192,12 @@ class _EditingUseCase(_CorrectionUseCase):
         corrections: SoapReportCorrectionRepository,
         reports: SoapReportRepository,
         dialogues: DialogueRepository,
+        icd_catalog: IcdCatalog | None = None,
     ) -> None:
         super().__init__(session, corrections)
         self._reports = reports
         self._dialogues = dialogues
+        self._icd_catalog = icd_catalog
 
     async def _reject_ungrounded(
         self, correction: SoapReportCorrection, *sections: Sequence[SoapClaim]
@@ -200,6 +208,15 @@ class _EditingUseCase(_CorrectionUseCase):
                 for citation in claim.citations:
                     if citation.turn_id not in grounded:
                         raise CitationNotInSourceDialogue(citation.turn_id)
+
+    def _canonicalize_icd(self, assessment: Sequence[AssessmentClaim]) -> None:
+        # No catalog wired (bare unit-test setups) ⇒ codings pass through as-is;
+        # the DI wiring always provides one, so the API path always validates.
+        if self._icd_catalog is None:
+            return
+        for claim in assessment:
+            if claim.icd is not None:
+                claim.icd = validate_manual_icd(claim.icd, self._icd_catalog)
 
     async def _source_turn_ids(self, correction: SoapReportCorrection) -> set[DialogueTurnId]:
         dialogue_id = await self._reports.get_dialogue_id(correction.source_report_id)
@@ -220,6 +237,7 @@ class AddCorrectedNote(_EditingUseCase):
         await self._reject_ungrounded(
             correction, command.subjective, command.objective, command.assessment, command.plan
         )
+        self._canonicalize_icd(command.assessment)
         note = correction.add_note(
             at=_now(),
             subjective=command.subjective,
@@ -240,6 +258,7 @@ class UpdateCorrectedNote(_EditingUseCase):
         await self._reject_ungrounded(
             correction, command.subjective, command.objective, command.assessment, command.plan
         )
+        self._canonicalize_icd(command.assessment)
         note = correction.update_note(
             command.note_id,
             at=_now(),

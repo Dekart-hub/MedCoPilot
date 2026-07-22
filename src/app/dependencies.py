@@ -31,7 +31,8 @@ from ehr.publication_repository import (
     PublicationOutboxRepository,
 )
 from ehr.publication_use_cases import GetEhrPublication, RequestEhrPublication
-from icd.bm25_coder import Bm25IcdCoder
+from icd.bm25_resolver import Bm25IcdResolver
+from icd.resolver import IcdResolver
 from infra.db import get_session
 from infra.ehr import build_ehr_client
 from infra.llm import build_llm_extractor, build_soap_edit_agent
@@ -85,8 +86,23 @@ def get_soap_report_repository(session: SessionDep) -> SoapReportRepository:
 
 
 @lru_cache
+def _icd_resolver() -> IcdResolver:
+    settings = get_settings()
+    if settings.icd_dictionary_path is not None:
+        return Bm25IcdResolver.from_json(settings.icd_dictionary_path, top_k=settings.icd_top_k)
+    return Bm25IcdResolver.from_bundled(top_k=settings.icd_top_k)
+
+
+def get_icd_resolver() -> IcdResolver:
+    return _icd_resolver()
+
+
+IcdResolverDep = Annotated[IcdResolver, Depends(get_icd_resolver)]
+
+
+@lru_cache
 def _extractor() -> SoapExtractor:
-    return build_llm_extractor(get_settings(), coder=Bm25IcdCoder.from_bundled())
+    return build_llm_extractor(get_settings(), resolver=_icd_resolver())
 
 
 def get_soap_extractor() -> SoapExtractor:
@@ -143,8 +159,9 @@ def get_add_corrected_note(
     corrections: CorrectionRepositoryDep,
     reports: ReportRepositoryDep,
     dialogues: DialogueRepositoryDep,
+    icd_resolver: IcdResolverDep,
 ) -> AddCorrectedNote:
-    return AddCorrectedNote(session, corrections, reports, dialogues)
+    return AddCorrectedNote(session, corrections, reports, dialogues, icd_resolver)
 
 
 def get_update_corrected_note(
@@ -152,8 +169,9 @@ def get_update_corrected_note(
     corrections: CorrectionRepositoryDep,
     reports: ReportRepositoryDep,
     dialogues: DialogueRepositoryDep,
+    icd_resolver: IcdResolverDep,
 ) -> UpdateCorrectedNote:
-    return UpdateCorrectedNote(session, corrections, reports, dialogues)
+    return UpdateCorrectedNote(session, corrections, reports, dialogues, icd_resolver)
 
 
 def get_delete_corrected_note(
